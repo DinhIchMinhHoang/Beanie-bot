@@ -86,6 +86,7 @@ class Song:
 		self.requester = requester
 		self.thumbnail = thumbnail
 		self.lyrics = None
+		self.prefetched_stream_url = None  # For background prefetching
 
 class MusicQueue:
 	def __init__(self):
@@ -119,22 +120,38 @@ def get_queue(guild_id):
 	return music_queues[guild_id]
 
 async def fetch_song_info(url_or_search, requester):
+	# Detect if input is a YouTube playlist link
+	is_playlist = False
+	if isinstance(url_or_search, str) and ("list=" in url_or_search or "youtube.com/playlist" in url_or_search):
+		is_playlist = True
 	ydl_opts = {
 		'format': 'bestaudio/best',
-		'noplaylist': True,
 		'quiet': True,
 		'default_search': 'ytsearch',
 		'extract_flat': 'in_playlist',
+		'noplaylist': not is_playlist,  # Only allow playlist if detected
 	}
 	with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 		info = ydl.extract_info(url_or_search, download=False)
+		songs = []
+		if 'entries' in info and is_playlist:
+			for entry in info['entries']:
+				if not entry:
+					continue
+				title = entry.get('title', 'Unknown')
+				artist = entry.get('uploader', 'Unknown')
+				url = entry.get('url') or entry.get('webpage_url') or url_or_search
+				thumbnail = entry.get('thumbnail')
+				songs.append(Song(url, title, artist, requester, thumbnail))
+			return songs
+		# Single video or search result
 		if 'entries' in info:
 			info = info['entries'][0]
 		title = info.get('title', 'Unknown')
 		artist = info.get('uploader', 'Unknown')
 		url = info.get('webpage_url', url_or_search)
 		thumbnail = info.get('thumbnail')
-		return Song(url, title, artist, requester, thumbnail)
+		return [Song(url, title, artist, requester, thumbnail)]
 
 async def fetch_lyrics(song):
 	try:
@@ -196,34 +213,64 @@ async def play_next(guild_id):
 	queue.is_playing = True
 	# Fetch lyrics in background
 	asyncio.create_task(fetch_lyrics(song))
+
+	# Prefetch next song's stream URL in background
+	async def prefetch_next():
+		if queue.songs:
+			next_song = queue.songs[0]
+			if not next_song.prefetched_stream_url:
+				try:
+					ydl_opts = {
+						'format': 'bestaudio/best',
+						'noplaylist': True,
+						'quiet': True,
+						'default_search': 'ytsearch',
+						'extract_flat': 'in_playlist',
+					}
+					with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+						info = ydl.extract_info(next_song.url, download=False)
+						if 'entries' in info:
+							entry = info['entries'][0]
+							video_url = entry.get('url')
+							if not video_url.startswith('http'):
+								video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+							info2 = ydl.extract_info(video_url, download=False)
+							stream_url = info2.get('url')
+						else:
+							stream_url = info.get('url')
+						next_song.prefetched_stream_url = stream_url
+						logging.info(f"[prefetch] Prefetched stream URL for next song: {stream_url}")
+				except Exception as e:
+					logging.error(f"[prefetch] Error prefetching next song: {e}")
+	asyncio.create_task(prefetch_next())
+
 	# Play audio with error logging
 	try:
-		# Always use yt-dlp to get direct audio stream URL for playback
-		ydl_opts = {
-			'format': 'bestaudio/best',
-			'noplaylist': True,
-			'quiet': True,
-			'default_search': 'ytsearch',
-			'extract_flat': 'in_playlist',
-		}
-		logging.info(f"[play_next] Fetching audio for playback: {song.url}")
-		with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-			info = ydl.extract_info(song.url, download=False)
-			logging.info(f"[play_next] yt-dlp info (first pass): {info}")
-			# If this is a playlist/search, get the first entry's video page URL
-			if 'entries' in info:
-				entry = info['entries'][0]
-				video_url = entry.get('url')
-				if not video_url.startswith('http'):
-					video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
-				logging.info(f"[play_next] Resolved video page URL: {video_url}")
-				# Run yt-dlp again to get the direct stream URL
-				info2 = ydl.extract_info(video_url, download=False)
-				logging.info(f"[play_next] yt-dlp info (second pass): {info2}")
-				stream_url = info2.get('url')
-			else:
-				# Direct video link
-				stream_url = info.get('url')
+		# Use prefetched stream URL if available
+		stream_url = song.prefetched_stream_url
+		if not stream_url:
+			ydl_opts = {
+				'format': 'bestaudio/best',
+				'noplaylist': True,
+				'quiet': True,
+				'default_search': 'ytsearch',
+				'extract_flat': 'in_playlist',
+			}
+			logging.info(f"[play_next] Fetching audio for playback: {song.url}")
+			with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+				info = ydl.extract_info(song.url, download=False)
+				logging.info(f"[play_next] yt-dlp info (first pass): {info}")
+				if 'entries' in info:
+					entry = info['entries'][0]
+					video_url = entry.get('url')
+					if not video_url.startswith('http'):
+						video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+					logging.info(f"[play_next] Resolved video page URL: {video_url}")
+					info2 = ydl.extract_info(video_url, download=False)
+					logging.info(f"[play_next] yt-dlp info (second pass): {info2}")
+					stream_url = info2.get('url')
+				else:
+					stream_url = info.get('url')
 		if not stream_url:
 			raise Exception("No audio URL found in yt-dlp info.")
 		logging.info(f"[play_next] FFmpeg input URL: {stream_url}")
@@ -264,17 +311,24 @@ async def play(interaction: discord.Interaction, query: str):
 	queue = get_queue(interaction.guild.id)
 	queue.text_channel = interaction.channel
 	await interaction.response.defer()
-	song = await fetch_song_info(query, interaction.user.display_name)
-	queue.add_song(song)
+	songs = await fetch_song_info(query, interaction.user.display_name)
+	for song in songs:
+		queue.add_song(song)
 	if not queue.is_playing:
 		# Connect and play
 		vc = await interaction.user.voice.channel.connect()
 		queue.voice_client = vc
 		await play_next(interaction.guild.id)
-		await interaction.followup.send(f"Now playing: {song.title} by {song.artist}")
+		if len(songs) == 1:
+			await interaction.followup.send(f"Now playing: {songs[0].title} by {songs[0].artist}")
+		else:
+			await interaction.followup.send(f"Now playing: {songs[0].title} by {songs[0].artist}\nAdded {len(songs)-1} more from playlist to queue.")
 	else:
 		await send_queue_message(queue, interaction.channel, interaction.guild.id)
-		await interaction.followup.send(f"Added to queue: {song.title} by {song.artist}")
+		if len(songs) == 1:
+			await interaction.followup.send(f"Added to queue: {songs[0].title} by {songs[0].artist}")
+		else:
+			await interaction.followup.send(f"Added {len(songs)} songs from playlist to queue. First: {songs[0].title} by {songs[0].artist}")
 
 @tree.command(name="add", description="Add a song to the queue without playing")
 @app_commands.describe(query="YouTube URL or search term")
@@ -282,10 +336,14 @@ async def add(interaction: discord.Interaction, query: str):
 	queue = get_queue(interaction.guild.id)
 	queue.text_channel = interaction.channel
 	await interaction.response.defer()
-	song = await fetch_song_info(query, interaction.user.display_name)
-	queue.add_song(song)
+	songs = await fetch_song_info(query, interaction.user.display_name)
+	for song in songs:
+		queue.add_song(song)
 	await send_queue_message(queue, interaction.channel, interaction.guild.id)
-	await interaction.followup.send(f"Added to queue: {song.title} by {song.artist}")
+	if len(songs) == 1:
+		await interaction.followup.send(f"Added to queue: {songs[0].title} by {songs[0].artist}")
+	else:
+		await interaction.followup.send(f"Added {len(songs)} songs from playlist to queue. First: {songs[0].title} by {songs[0].artist}")
 
 @tree.command(name="queue", description="Show the current music queue")
 async def show_queue(interaction: discord.Interaction):
