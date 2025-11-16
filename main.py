@@ -121,29 +121,20 @@ def get_queue(guild_id):
 async def fetch_song_info(url_or_search, requester):
 	ydl_opts = {
 		'format': 'bestaudio/best',
+		'noplaylist': True,
 		'quiet': True,
 		'default_search': 'ytsearch',
-		'extract_flat': False,
+		'extract_flat': 'in_playlist',
 	}
 	with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 		info = ydl.extract_info(url_or_search, download=False)
-		songs = []
 		if 'entries' in info:
-			for entry in info['entries']:
-				if entry is None:
-					continue
-				title = entry.get('title', 'Unknown')
-				artist = entry.get('uploader', 'Unknown')
-				url = entry.get('webpage_url', url_or_search)
-				thumbnail = entry.get('thumbnail')
-				songs.append(Song(url, title, artist, requester, thumbnail))
-		else:
-			title = info.get('title', 'Unknown')
-			artist = info.get('uploader', 'Unknown')
-			url = info.get('webpage_url', url_or_search)
-			thumbnail = info.get('thumbnail')
-			songs.append(Song(url, title, artist, requester, thumbnail))
-		return songs
+			info = info['entries'][0]
+		title = info.get('title', 'Unknown')
+		artist = info.get('uploader', 'Unknown')
+		url = info.get('webpage_url', url_or_search)
+		thumbnail = info.get('thumbnail')
+		return Song(url, title, artist, requester, thumbnail)
 
 async def fetch_lyrics(song):
 	try:
@@ -273,18 +264,17 @@ async def play(interaction: discord.Interaction, query: str):
 	queue = get_queue(interaction.guild.id)
 	queue.text_channel = interaction.channel
 	await interaction.response.defer()
-	songs = await fetch_song_info(query, interaction.user.display_name)
-	for song in songs:
-		queue.add_song(song)
+	song = await fetch_song_info(query, interaction.user.display_name)
+	queue.add_song(song)
 	if not queue.is_playing:
 		# Connect and play
 		vc = await interaction.user.voice.channel.connect()
 		queue.voice_client = vc
 		await play_next(interaction.guild.id)
-		await interaction.followup.send(f"Now playing: {songs[0].title} by {songs[0].artist}")
+		await interaction.followup.send(f"Now playing: {song.title} by {song.artist}")
 	else:
 		await send_queue_message(queue, interaction.channel, interaction.guild.id)
-		await interaction.followup.send(f"Added to queue: {', '.join(song.title for song in songs)}")
+		await interaction.followup.send(f"Added to queue: {song.title} by {song.artist}")
 
 @tree.command(name="add", description="Add a song to the queue without playing")
 @app_commands.describe(query="YouTube URL or search term")
@@ -292,28 +282,15 @@ async def add(interaction: discord.Interaction, query: str):
 	queue = get_queue(interaction.guild.id)
 	queue.text_channel = interaction.channel
 	await interaction.response.defer()
-	songs = await fetch_song_info(query, interaction.user.display_name)
-	for song in songs:
-		queue.add_song(song)
+	song = await fetch_song_info(query, interaction.user.display_name)
+	queue.add_song(song)
 	await send_queue_message(queue, interaction.channel, interaction.guild.id)
-	await interaction.followup.send(f"Added to queue: {', '.join(song.title for song in songs)}")
+	await interaction.followup.send(f"Added to queue: {song.title} by {song.artist}")
 
 @tree.command(name="queue", description="Show the current music queue")
 async def show_queue(interaction: discord.Interaction):
 	queue = get_queue(interaction.guild.id)
-	if not queue.songs and not queue.current:
-		await interaction.response.send_message("The queue is empty.")
-		return
-	desc = ""
-	if queue.current:
-		desc += f"**Now Playing:**\n{queue.current.title} by {queue.current.artist} (requested by {queue.current.requester})\n"
-	if queue.songs:
-		desc += "\n**Up Next:**"
-		for idx, song in enumerate(queue.songs[:10], 1):
-			desc += f"\n{idx}. {song.title} by {song.artist} (requested by {song.requester})"
-		if len(queue.songs) > 10:
-			desc += f"\n... and {len(queue.songs)-10} more track(s)"
-	await interaction.response.send_message(desc)
+	await send_queue_message(queue, interaction.channel, interaction.guild.id)
 
 @tree.command(name="stop", description="Stop music and disconnect")
 async def stop(interaction: discord.Interaction):
