@@ -1,7 +1,4 @@
 discord.py
 google-generativeai
-yt-dlp
-PyNaCl
 python-dotenv
 pytz
-lyricsgenius
