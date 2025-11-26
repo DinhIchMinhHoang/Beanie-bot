@@ -142,54 +142,42 @@ async def on_ready():
 ai_queue = asyncio.Queue()
 ai_processing = False
 
-@tree.command(name="chat", description="Talk to Beanie (AI chat)")
-@app_commands.describe(text="Your message to Beanie")
-async def chat(interaction: discord.Interaction, text: str):
-	global lockdown, lockdown_until
+
+# --- Listen for /beanie text messages ---
+@bot.event
+async def on_message(message):
+	global lockdown, lockdown_until, ai_processing
+	if message.author.bot:
+		return
+	if not message.content.lower().startswith("/beanie"):
+		return
 	if lockdown:
-		await interaction.response.send_message("⏳ AI Chat is cooling down. Please wait.", ephemeral=True)
+		await message.reply("⏳ AI Chat is cooling down. Please wait.")
 		return
-	if not text.strip():
-		await interaction.response.send_message("Please type something after /chat!", ephemeral=True)
+	text = message.content[len("/beanie"):].strip()
+	if not text:
+		await message.reply("Please type something after /beanie!")
 		return
-
-	# Echo the user's prompt publicly so others can see the question
-	try:
-		now_ts = datetime.now(VIETNAM_TZ).strftime("%Y-%m-%d %H:%M:%S")
-		if interaction.channel:
-			await interaction.channel.send(f"**{interaction.user.display_name} asked (Hanoi time {now_ts}):**\n{text}")
-	except Exception:
-		pass
-
-	await interaction.response.defer()
-	# Add to queue: (interaction, text)
-	await ai_queue.put((interaction, text))
-	# Start processor if not running
-	global ai_processing
+	await ai_queue.put((message, text))
 	if not ai_processing:
 		asyncio.create_task(process_ai_queue())
-	print("Registered /chat command")
 
 
 async def process_ai_queue():
 	global ai_processing, lockdown, lockdown_until
 	ai_processing = True
 	while not ai_queue.empty():
-		interaction, text = await ai_queue.get()
-		add_to_memory(interaction.user.display_name, text)
+		message, text = await ai_queue.get()
+		add_to_memory(message.author.display_name, text)
 
 		# Warning and Lockdown logic
 		if len(chat_memory) == WARNING_THRESHOLD:
-			await interaction.channel.send("⚠️ You have 3 messages left, make them worthy!")
+			await message.channel.send("⚠️ You have 3 messages left, make them worthy!")
 		if len(chat_memory) >= MEMORY_LIMIT:
 			lockdown = True
 			now_vn = datetime.now(VIETNAM_TZ)
 			lockdown_until = now_vn + timedelta(minutes=COOLDOWN_MINUTES)
-			await interaction.channel.send("🔒 AI Chat is now locked for 1 hour! (Vietnam time)")
-			try:
-				await interaction.followup.send("AI Chat is now locked. Please wait for cooldown.")
-			except Exception:
-				pass
+			await message.channel.send("🔒 AI Chat is now locked for 1 hour! (Vietnam time)")
 			continue
 
 		# Prepare context for Gemini
@@ -201,19 +189,13 @@ async def process_ai_queue():
 			response = await asyncio.to_thread(gemini.generate_content, prompt)
 			reply = response.text.strip()
 		except Exception as e:
-			try:
-				await interaction.followup.send(f"Error: {e}")
-			except Exception:
-				pass
+			await message.reply(f"Error: {e}")
 			continue
 
 		# Split and send in chunks
 		chunks = [reply[i:i+CHUNK_SIZE] for i in range(0, len(reply), CHUNK_SIZE)]
 		for chunk in chunks:
-			try:
-				await interaction.followup.send(chunk)
-			except Exception:
-				pass
+			await message.reply(chunk)
 		add_to_memory("Beanie", reply)
 	ai_processing = False
 
