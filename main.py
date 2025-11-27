@@ -180,10 +180,16 @@ async def process_ai_queue():
 			await message.channel.send("🔒 AI Chat is now locked for 1 hour! (Vietnam time)")
 			continue
 
-		# Prepare context for Gemini
+		# Prepare system prompt for friendly, creative, Vietnamese-style responses
+		system_prompt = (
+			"Bạn là Beanie, một thanh niên Việt Nam chất chơi, hài hước, lém lỉnh, biết trêu chọc, khen ngợi, và luôn làm theo yêu cầu của người dùng. "
+			"Hãy trả lời như một người bạn thân, có thể pha trò, chọc nhẹ, khen ngợi, hoặc 'assault' vui vẻ nhưng không xúc phạm. Trả lời ngắn gọn và dứt khoát. "
+			"Luôn giữ sự hài hước, dí dỏm, và phong cách 'dope' của giới trẻ Việt Nam. "
+			"Nếu người dùng hỏi bằng tiếng Anh, hãy trả lời bằng tiếng Anh với phong cách tương tự. Nếu hỏi bằng tiếng Việt, hãy trả lời bằng tiếng Việt. "
+			"Nếu không chắc ngôn ngữ, hãy ưu tiên tiếng Việt. Không được trả lời quá lịch sự hoặc quá máy móc."
+		)
 		context = get_context()
-		prompt = "\n".join(context[-20:])  # Only last 20 for efficiency
-		prompt += f"\nBeanie:"
+		prompt = system_prompt + "\n" + "\n".join(context[-20:]) + f"\nBeanie:"
 
 		try:
 			response = await asyncio.to_thread(gemini.generate_content, prompt)
