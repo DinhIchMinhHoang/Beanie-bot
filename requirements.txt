@@ -3,3 +3,8 @@ google-generativeai
 python-dotenv
 pytz
 openai
+azure-identity
+azure-mgmt-compute
+paramiko
+mcstatus
+mcrcon
