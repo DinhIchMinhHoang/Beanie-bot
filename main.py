@@ -52,6 +52,10 @@ MC_SERVER_IP = os.getenv("MC_SERVER_IP")
 SHUTDOWN_MAX_WAIT = int(os.getenv("SHUTDOWN_MAX_WAIT", "300"))
 SHUTDOWN_POLL_INTERVAL = int(os.getenv("SHUTDOWN_POLL_INTERVAL", "3"))
 
+# Manual-start grace (minutes) to avoid auto-shutdown immediately after a manual/bot start
+MANUAL_GRACE_MINUTES = int(os.getenv("MANUAL_GRACE_MINUTES", "10"))
+MANUAL_GRACE_UNTIL = 0
+
 # RCON settings
 RCON_ENABLED = os.getenv("RCON_ENABLED", "false").lower() in ("1", "true", "yes")
 RCON_HOST = os.getenv("RCON_HOST") or MC_SERVER_IP
@@ -266,6 +270,84 @@ def rcon_command(command, timeout=10):
 			return out
 	except Exception:
 		raise
+
+
+def get_current_player_count():
+	"""Return current player count as int, or None if unknown/offline.
+
+	Prefers RCON when VM is running; falls back to mcstatus network check.
+	"""
+	# Keep synchronous fallback for rare direct calls; prefer async helper in tasks.
+	try:
+		if RCON_ENABLED and RCON_PKG_AVAILABLE and RCON_PASSWORD and vm_is_running():
+			try:
+				out = rcon_command('list')
+				import re
+				m = re.search(r"There are (\d+) of a max", out)
+				if m:
+					return int(m.group(1))
+				return 0
+			except Exception:
+				pass
+		if MC_SERVER_IP:
+			try:
+				server = JavaServer.lookup(MC_SERVER_IP)
+				status_mc = server.status()
+				return int(status_mc.players.online)
+			except Exception:
+				pass
+		# SSH fallback: check if 'screen' session exists
+		if SSH_PASSWORD and SSH_HOST and SSH_USER:
+			try:
+				cmd = 'bash -lc "screen -ls | grep mc >/dev/null && echo RUNNING || echo STOPPED"'
+				out = ssh_command(cmd, timeout=5)
+				if isinstance(out, str) and out.strip().startswith("RUNNING"):
+					return 1
+				return 0
+			except Exception:
+				pass
+	except Exception:
+		return None
+	return None
+
+
+async def async_get_player_count(timeout=5):
+	"""Async player count probe with timeouts and fallbacks.
+
+	Returns int (player count) or None if undetermined.
+	"""
+	# Try RCON first when VM is running
+	try:
+		if RCON_ENABLED and RCON_PKG_AVAILABLE and RCON_PASSWORD and vm_is_running():
+			try:
+				out = await asyncio.wait_for(asyncio.to_thread(rcon_command, 'list'), timeout=timeout)
+				import re
+				m = re.search(r"There are (\d+) of a max", out)
+				if m:
+					return int(m.group(1))
+				return 0
+			except Exception:
+				pass
+		# Try mcstatus network check
+		if MC_SERVER_IP:
+			try:
+				status_mc = await asyncio.wait_for(asyncio.to_thread(lambda: JavaServer.lookup(MC_SERVER_IP).status()), timeout=timeout)
+				return int(status_mc.players.online)
+			except Exception:
+				pass
+		# SSH fallback: check for screen session named mc
+		if SSH_PASSWORD and SSH_HOST and SSH_USER:
+			try:
+				cmd = 'bash -lc "screen -ls | grep mc >/dev/null && echo RUNNING || echo STOPPED"'
+				out = await asyncio.wait_for(asyncio.to_thread(ssh_command, cmd, 5), timeout=timeout)
+				if isinstance(out, str) and out.strip().startswith("RUNNING"):
+					return 1
+				return 0
+			except Exception:
+				pass
+	except Exception:
+		return None
+	return None
 
 def clear_memory():
 	global chat_memory
@@ -568,6 +650,12 @@ async def start(ctx):
 				await ctx.followup.send(msg)
 			except Exception:
 				await ctx.send(msg)
+			# set manual-grace window to avoid immediate auto-shutdown after a bot-initiated start
+			try:
+				global MANUAL_GRACE_UNTIL
+				MANUAL_GRACE_UNTIL = time.time() + (MANUAL_GRACE_MINUTES * 60)
+			except Exception:
+				pass
 			break
 		await asyncio.sleep(5)
 	if not server_online:
@@ -695,6 +783,12 @@ async def restart_mc(ctx):
 			await ctx.followup.send(f"✅ Force restart command executed: {str(out)[:1000]}")
 		except Exception:
 			await ctx.send(f"✅ Force restart command executed: {str(out)[:1000]}")
+		# set manual-grace after restart
+		try:
+			global MANUAL_GRACE_UNTIL
+			MANUAL_GRACE_UNTIL = time.time() + (MANUAL_GRACE_MINUTES * 60)
+		except Exception:
+			pass
 		return
 	# If SSH not available, fall back to graceful RCON stop (best-effort)
 	if RCON_ENABLED and RCON_PKG_AVAILABLE and RCON_PASSWORD:
@@ -841,6 +935,12 @@ async def start_slash(interaction: discord.Interaction):
 				msg += f"🟢 **Minecraft (RCON):** {players_cnt} players"
 			await interaction.followup.send(msg)
 			break
+			# set manual-grace window to avoid immediate auto-shutdown after a bot-initiated start
+			try:
+				global MANUAL_GRACE_UNTIL
+				MANUAL_GRACE_UNTIL = time.time() + (MANUAL_GRACE_MINUTES * 60)
+			except Exception:
+				pass
 		await asyncio.sleep(5)
 	if not server_online:
 		await interaction.followup.send("⚠️ Máy chủ vẫn chưa online sau thời gian chờ; có thể server vẫn đang khởi động. Vui lòng kiểm tra lại sau.")
@@ -905,6 +1005,12 @@ async def restart_mc_slash(interaction: discord.Interaction):
 		cmd = 'bash -lc "pkill -9 -f java || true; sleep 2; cd ~/minecraft && screen -dmS mc ./start.sh"'
 		out = await asyncio.to_thread(ssh_command, cmd)
 		await interaction.followup.send(f"✅ Force restart command executed: {str(out)[:1000]}")
+		# set manual-grace after restart
+		try:
+			global MANUAL_GRACE_UNTIL
+			MANUAL_GRACE_UNTIL = time.time() + (MANUAL_GRACE_MINUTES * 60)
+		except Exception:
+			pass
 		return
 	if RCON_ENABLED and RCON_PKG_AVAILABLE and RCON_PASSWORD:
 		try:
@@ -972,8 +1078,36 @@ async def auto_shutdown_check():
 				channel = None
 			if not channel and AUTO_SHUTDOWN_CHANNEL_ID:
 				channel = bot.get_channel(AUTO_SHUTDOWN_CHANNEL_ID)
-			if channel:
-				await channel.send("⚠️ Không có ai chơi trong thời gian dài, Bot sẽ tắt máy để tiết kiệm chi phí.")
+			# Before attempting shutdown: respect manual-grace window
+			if MANUAL_GRACE_UNTIL and time.time() < MANUAL_GRACE_UNTIL:
+				# Within manual-grace: silently skip auto-shutdown
+				EMPTY_CHECK_COUNT = 0
+				return
+			# Re-check using mcstatus network probe ONLY and act according to result:
+			# - If mcstatus fails: cancel and notify channel about inability to track
+			# - If mcstatus reports >0 players: cancel silently and reset counter
+			# - If mcstatus reports 0 players: send preliminary notification then proceed to stop
+			if MC_SERVER_IP:
+				try:
+					status_mc = await asyncio.wait_for(asyncio.to_thread(lambda: JavaServer.lookup(MC_SERVER_IP).status()), timeout=5)
+				except Exception:
+					# mcstatus could not determine server state; notify channel and cancel
+					if channel:
+						await channel.send("⚠️ Không thể track được mcstatus - hủy auto-shutdown.")
+					EMPTY_CHECK_COUNT = 0
+					return
+				players_now = int(status_mc.players.online)
+				if players_now > 0:
+					# players present; cancel auto-shutdown silently and reset counter
+					EMPTY_CHECK_COUNT = 0
+					return
+				# players_now == 0: send preliminary message then proceed
+				if channel:
+					await channel.send("⚠️ Không có ai chơi trong thời gian dài, Bot sẽ tắt máy để tiết kiệm chi phí.")
+			else:
+				# No MC_SERVER_IP configured: cannot re-check, abort silently
+				EMPTY_CHECK_COUNT = 0
+				return
 			# send stop then deterministically verify shutdown before deallocating
 			await asyncio.to_thread(ssh_command, 'screen -S mc -p 0 -X stuff "stop^M"')
 			try:
