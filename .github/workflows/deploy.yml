@@ -1,0 +1,36 @@
+name: Deploy Beanie Bot to Azure VM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Upload files to Azure VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          password: ${{ secrets.VM_PASSWORD }}
+          source: "main.py,requirements.txt,sfx/,deploy.sh"
+          target: ~/beanie-bot
+          strip_components: 0
+      
+      - name: Run deployment script on VM
+        uses: appleboy/ssh-action@v1.1.1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          password: ${{ secrets.VM_PASSWORD }}
+          script: |
+            cd ~/beanie-bot
+            chmod +x deploy.sh
+            bash deploy.sh

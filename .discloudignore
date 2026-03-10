@@ -1,9 +1,0 @@
-# Python virtual environment
-.venv/
-
-# Environment variables
-
-# Log and chat history files
-beanie.log
-chat_history.txt
-last_request_channel.txt
