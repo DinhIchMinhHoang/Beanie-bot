@@ -2,7 +2,7 @@
 .venv/
 
 # Environment variables
-.env
+#.env
 
 # Log and chat history files
 beanie.log
