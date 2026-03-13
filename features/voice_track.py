@@ -391,9 +391,9 @@ class VoiceTrackingFeature(commands.Cog):
                 # Checkpoint: Save current voice stats for people in voice channels
                 self.checkpoint_voice_stats(guild_id)
                 
-                # Get updated stats after checkpoint
-                stats = self.load_voice_stats(guild_id)
-                logging.info(f"Leaderboard update for guild {guild_id} - loaded stats sample: {dict(list(stats.items())[:10])}")
+                # Use all-time totals (current + archived months) for leaderboard channels.
+                stats = self.load_all_time_stats(guild_id)
+                logging.info(f"Leaderboard update for guild {guild_id} - loaded all-time stats sample: {dict(list(stats.items())[:10])}")
                 
                 # Get all-time totals for competitors
                 rankings = []
@@ -927,8 +927,8 @@ class VoiceTrackingFeature(commands.Cog):
                 await interaction.followup.send("📊 No competitors registered yet.", ephemeral=True)
                 return
             
-            # Get all-time totals
-            stats = self.load_voice_stats(guild_id)
+            # Get all-time totals (current + archived months)
+            stats = self.load_all_time_stats(guild_id)
             
             rankings = []
             for uid, channel_id in competitors.items():
