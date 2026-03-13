@@ -302,7 +302,7 @@ class GuildConfigManager:
         birthday_channel = None
         for channel_id in birthday_channel_ids:
             channel = guild.get_channel(channel_id)
-            if isinstance(channel, discord.TextChannel):
+            if isinstance(channel, (discord.TextChannel, discord.VoiceChannel)):
                 birthday_channel = channel
                 break
 
@@ -341,7 +341,7 @@ class GuildConfigManager:
         general_channel_id = guild_config.get_general_channel_id()
         if general_channel_id:
             channel = guild.get_channel(general_channel_id)
-            if isinstance(channel, discord.TextChannel):
+            if isinstance(channel, (discord.TextChannel, discord.VoiceChannel)):
                 general_channel = channel
 
         if general_channel is None:
