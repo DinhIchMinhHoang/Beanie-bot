@@ -378,7 +378,7 @@ class VoiceTrackingFeature(commands.Cog):
     
     @tasks.loop(hours=1)
     async def update_leaderboard(self):
-        """Update voice channel names hourly with all competitors."""
+        """Update voice channel names hourly using current-month stats."""
         await self.bot.wait_until_ready()
         
         for guild in self.bot.guilds:
@@ -391,9 +391,9 @@ class VoiceTrackingFeature(commands.Cog):
                 # Checkpoint: Save current voice stats for people in voice channels
                 self.checkpoint_voice_stats(guild_id)
                 
-                # Use all-time totals (current + archived months) for leaderboard channels.
-                stats = self.load_all_time_stats(guild_id)
-                logging.info(f"Leaderboard update for guild {guild_id} - loaded all-time stats sample: {dict(list(stats.items())[:10])}")
+                # Use current-month totals for leaderboard channel names.
+                stats = self.load_voice_stats(guild_id)
+                logging.info(f"Leaderboard update for guild {guild_id} - loaded current-month stats sample: {dict(list(stats.items())[:10])}")
                 
                 # Get all-time totals for competitors
                 rankings = []
