@@ -8,11 +8,23 @@ bin/
 # Log and chat history files
 beanie.log
 chat_history.txt
+test_chat_history.txt
+main.py.backup
 last_request_channel.txt
-sfx/
+data/
 archive_2026_03.json
 birthdays.json
 competitors.json
 entry_settings.json
 state.json
 voice_stats.json
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.pyc
+__pycache__/
+.tox/
+.hypothesis/
+test_*.json

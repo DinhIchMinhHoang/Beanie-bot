@@ -3,10 +3,66 @@
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  deploy:
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Create test .env file
+      run: |
+        cat > .env << EOF
+        DISCORD_TOKEN=test_token_${{ github.sha }}
+        GEMINI_API_KEY=test_key_${{ github.sha }}
+        AZURE_TENANT_ID=test_tenant
+        AZURE_CLIENT_ID=test_client
+        AZURE_CLIENT_SECRET=test_secret
+        AZURE_SUBSCRIPTION_ID=test_subscription
+        AZURE_RESOURCE_GROUP=test_rg
+        AZURE_VM_NAME=test_vm
+        SSH_HOST=127.0.0.1
+        SSH_PORT=22
+        SSH_USER=test
+        SSH_PASSWORD=test
+        RCON_ENABLED=false
+        RCON_HOST=127.0.0.1
+        RCON_PORT=25575
+        RCON_PASSWORD=test
+        EOF
+    
+    - name: Run pytest
+      run: |
+        pytest tests/ -v --tb=short --cov=features --cov=core --cov-report=term-missing
+    
+    - name: Upload coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: .coverage
+
+  deploy:
+    name: Deploy to Azure VM
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
     - name: Execute Remote SSH Commands
       uses: appleboy/ssh-action@v1.0.3
@@ -15,9 +71,37 @@ jobs:
         username: ${{ secrets.VM_USER }}
         password: ${{ secrets.VM_PASSWORD }}
         script: |
+          set -e
           cd /home/Bean/beanie-bot
           git fetch --all
           git reset --hard origin/main
+
+          # Migrate legacy single-guild root data into multi-guild layout (safe, one-way).
+          GUILD_ID=$(grep -E '^GUILD_ID=' .env 2>/dev/null | head -n1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ')
+          if [ -z "$GUILD_ID" ]; then
+            GUILD_ID="1052940754600874105"
+          fi
+
+          mkdir -p "data/guilds/$GUILD_ID"
+
+          for f in birthdays.json voice_stats.json competitors.json entry_settings.json state.json chat_history.txt guild_config.json; do
+            if [ -f "$f" ] && [ ! -f "data/guilds/$GUILD_ID/$f" ]; then
+              mv "$f" "data/guilds/$GUILD_ID/$f"
+            fi
+          done
+
+          for f in archive_*.json; do
+            if [ -f "$f" ] && [ ! -f "data/guilds/$GUILD_ID/$f" ]; then
+              mv "$f" "data/guilds/$GUILD_ID/$f"
+            fi
+          done
+
+          mkdir -p data/sfx
+          if [ -d sfx ]; then
+            cp -an sfx/. data/sfx/ || true
+          fi
+
           source .venv/bin/activate
           pip install -r requirements.txt
           sudo systemctl restart beanie-bot
+          sudo systemctl is-active beanie-bot
