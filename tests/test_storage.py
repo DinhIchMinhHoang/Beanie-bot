@@ -10,6 +10,7 @@ from core.storage import get_storage
 
 @pytest.mark.unit
 class TestSQLiteStorage:
+    @pytest.mark.skip(reason="Migration from JSON to SQLite is now disabled in core/storage.py - all data already migrated")
     def test_storage_migrates_existing_guild_files(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("BEANIE_BASE_DIR", str(tmp_path))
@@ -58,6 +59,7 @@ class TestSQLiteStorage:
         assert storage.load_chat_history(guild_id) == ["[2026-03-13T00:00:00+00:00] User: hello"]
         assert storage.load_all_time_voice_stats(guild_id) == {"42": 10800.0}
 
+    @pytest.mark.skip(reason="Migration from JSON to SQLite is now disabled in core/storage.py - all data already migrated")
     def test_storage_migrates_legacy_root_files_for_primary_guild(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("BEANIE_BASE_DIR", str(tmp_path))
