@@ -163,6 +163,10 @@ class SQLiteStorage:
             config_data = self._read_json_file(config_file, default_config)
             await self._save_guild_config(guild_id, config_data)
 
+        # Migration from JSON to SQLite has completed; keeping methods for reference/rollback.
+        # The following migration calls are disabled since all data has been transferred.
+        # Uncomment below if needed to re-enable migration from legacy JSON files.
+        """
         await self._migrate_simple_json_table(
             guild_id,
             guild_dir,
@@ -219,6 +223,7 @@ class SQLiteStorage:
 
         await self._migrate_chat_history(guild_id, guild_dir)
         await self._migrate_archives(guild_id, guild_dir)
+        """
         await self._conn.commit()
 
     async def _migrate_simple_json_table(

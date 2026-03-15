@@ -183,6 +183,77 @@ async def load_features():
         logging.error(f"Failed to load features: {e}", exc_info=True)
 
 
+# --- Help Command ---
+@tree.command(name="help", description="Show all available commands and bot features")
+async def help_command(interaction: discord.Interaction):
+    """Display comprehensive help information about Beanie Bot."""
+    help_text = """
+# 🤖 **BEANIE BOT - COMMAND HELP**
+
+## 🎤 **VOICE TRACKING & RANKING**
+Command `/rank [action]` - Manage voice time competition
+• **add** - Join the competition (or add another user as admin)
+• **remove** - Leave the competition (or remove user as admin)
+• **list** - View all-time leaderboard with total hours
+
+💎 **Premium Features** (earn hours to unlock ranks):
+• **Gold+**: `/say [message]` - Make Beanie speak in voice (max 50 chars)
+• **Diamond+**: `/on` / `/off` - Enable/disable entrance sounds
+• **Immortal+**: `/add` / `/upload` - Custom entrance sounds
+
+Admin Commands:
+• `/sync_roles` - Manually sync rank roles and roles for all members
+• `/refresh_leaderboard` - Force update voice channel names now
+
+---
+
+## 🎂 **BIRTHDAY MANAGEMENT** (Admin Commands)
+• `/birthday add [user] [dd/mm]` - Register a user's birthday
+• `/birthday list` - See all registered birthdays
+
+• `/birthday_channel set [channel]` - Set birthday announcement channel
+• `/birthday_channel add [channel]` - Add another announcement channel
+• `/birthday_channel remove [channel]` - Remove an announcement channel
+• `/birthday_channel list` - View all announcement channels
+
+---
+
+## 🎮 **MINECRAFT SERVER** (Azure VM Management)
+• `/status` - Check Azure VM and Minecraft server status
+• `/start` - Start Azure VM and launch Minecraft server
+• `/stop` - Stop Minecraft server and deallocate VM (saves costs)
+• `/restart_mc` - Restart Minecraft server only
+
+---
+
+## 📊 **RANKING SYSTEM**
+As you spend time in voice channels, you earn ranks with special perks:
+1. **Bronze** - Basic member
+2. **Silver** - Unlocks at ~10 hours
+3. **Gold** - Unlocks at ~50 hours + `/say` command
+4. **Platinum** - Unlocks at ~100 hours
+5. **Diamond** - Unlocks at ~200 hours + entrance sounds
+6. **Immortal** - Unlocks at ~500 hours + custom sounds
+7. **Godly** - Unlocks at ~1000+ hours
+
+---
+
+## ✨ **FEATURES**
+✅ Automatic voice time tracking
+✅ Monthly leaderboard in rank category
+✅ Birthday reminders and announcements
+✅ Minecraft server management with Azure integration
+✅ Multi-guild support
+✅ Customizable entrance sounds
+
+---
+
+**Type `/help` anytime to see this message again!**
+"""
+    
+    await interaction.response.send_message(help_text, ephemeral=True)
+
+
 # --- Bot Events ---
 @bot.event
 async def on_ready():
