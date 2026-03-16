@@ -217,7 +217,31 @@ async def help_command(interaction: discord.Interaction):
     )
     embeds.append(embed1)
     
-    # Embed 2: Birthday Management
+    # Embed 2: AI Chat
+    embed_ai = discord.Embed(
+        title="🤖 AI CHAT WITH BEANIE",
+        description="Talk to the AI-powered Beanie bot",
+        color=discord.Color.purple()
+    )
+    embed_ai.add_field(
+        name="Chat Commands",
+        value="• `/beanie [message]` - Chat with Beanie AI\n"
+              "  → Message-based interaction with memory\n"
+              "  → Beanie remembers conversation context\n"
+              "  → Responds in Vietnamese or English\n\n"
+              "• `/wipe` - Clear Beanie's memory (Admin only)",
+        inline=False
+    )
+    embed_ai.add_field(
+        name="⚙️ How It Works",
+        value="💬 Each guild has its own memory\n"
+              "⏳ 1-hour cooldown after 50 messages\n"
+              "🔒 Cooldown resets memory automatically",
+        inline=False
+    )
+    embeds.append(embed_ai)
+    
+    # Embed 3: Birthday Management
     embed2 = discord.Embed(
         title="🎂 BIRTHDAY MANAGEMENT",
         description="Admin Commands",
@@ -239,7 +263,7 @@ async def help_command(interaction: discord.Interaction):
     )
     embeds.append(embed2)
     
-    # Embed 3: Minecraft & Features
+    # Embed 4: Minecraft & Features
     embed3 = discord.Embed(
         title="🎮 MINECRAFT & FEATURES",
         color=discord.Color.green()
@@ -264,7 +288,7 @@ async def help_command(interaction: discord.Interaction):
     )
     embeds.append(embed3)
     
-    # Embed 4: Ranking System
+    # Embed 5: Ranking System
     embed4 = discord.Embed(
         title="📊 RANKING SYSTEM",
         description="Earn ranks by spending time in voice channels",
@@ -273,14 +297,14 @@ async def help_command(interaction: discord.Interaction):
     embed4.add_field(
         name="Ranks & Perks",
         value="1. **Iron** - Basic member\n"
-              "2. **Bronze** - ~10 hours\n"
-              "3. **Silver** - ~20 hours\n"
-              "4. **Gold** - ~30 hours + `/say`\n"
-              "5. **Platinum** - ~40 hours + `/say`\n"
-              "6. **Diamond** - ~50 hours + `/sound`\n"
-              "7. **Elite** - ~60 hours + `/sound`\n"
-              "8. **Immortal** - ~70 hours + custom sounds\n"
-              "9. **Legendary** - ~80 hours + custom sounds\n",
+              "2. **Bronze** - 10 hours\n"
+              "3. **Silver** - 20 hours\n"
+              "4. **Gold** - 30 hours + `/say`\n"
+              "5. **Platinum** - 40 hours + `/say`\n"
+              "6. **Diamond** - 50 hours + `/sound`\n"
+              "7. **Elite** - 60 hours + `/sound`\n"
+              "8. **Immortal** - 70 hours + custom sounds\n"
+              "9. **Legendary** - 80 hours + custom sounds\n",
         inline=False
     )
     embed4.set_footer(text="Type /help anytime to see this message again!")
