@@ -1,6 +1,5 @@
 # 🤖 Beanie Bot - A Multi-Feature Discord Bot
 
-[![Tests](https://github.com/BeanBot/beanie-bot/workflows/Tests/badge.svg)](https://github.com/BeanBot/beanie-bot/actions)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![Discord.py](https://img.shields.io/badge/discord.py-2.7.1-blue.svg)](https://discordpy.readthedocs.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -32,7 +31,7 @@ A powerful, production-ready Discord bot built with Python, featuring voice time
 Track how much time users spend in voice channels and assign ranks based on activity.
 
 - **Automatic Tracking**: Logs voice time per user per month
-- **7-Tier Ranking System**: Bronze → Silver → Gold → Platinum → Diamond → Immortal → Godly
+- **9-Tier Ranking System**: Iron → Bronze → Silver → Gold → Platinum → Diamond → Elite → Immortal → Legendary
 - **Monthly Leaderboard**: Voice channel name updates showing top speakers
 - **All-Time Statistics**: Combined historical data from all months
 - **Premium Perks**:
