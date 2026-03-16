@@ -262,3 +262,74 @@ class TestVoiceTrackingFeature:
                     # guild_id is first param, data is second
                     saved_data = mock_save.call_args[0][1]
                     assert saved_data["123456"] >= 3600
+    
+    @pytest.mark.asyncio
+    async def test_rank_cmd_set_not_admin(self, voice_feature, mock_interaction):
+        """Test /rank set fails if user is not admin."""
+        mock_interaction.user.guild_permissions.administrator = False
+        mock_interaction.guild.id = TEST_GUILD_ID
+        
+        mock_user = MagicMock()
+        mock_user.id = 789012
+        mock_user.display_name = "TestUser"
+        
+        await voice_feature.rank_cmd.callback(voice_feature, mock_interaction, action="set", user=mock_user, seconds=180000)
+        
+        # Should reject with admin error
+        mock_interaction.followup.send.assert_called_once()
+        assert "admin" in mock_interaction.followup.send.call_args[0][0].lower()
+    
+    @pytest.mark.asyncio
+    async def test_rank_cmd_set_no_user(self, voice_feature, mock_interaction):
+        """Test /rank set fails if no user specified."""
+        mock_interaction.user.guild_permissions.administrator = True
+        mock_interaction.guild.id = TEST_GUILD_ID
+        
+        await voice_feature.rank_cmd.callback(voice_feature, mock_interaction, action="set", user=None, seconds=180000)
+        
+        # Should reject with user error
+        mock_interaction.followup.send.assert_called_once()
+        assert "must specify a user" in mock_interaction.followup.send.call_args[0][0].lower()
+    
+    @pytest.mark.asyncio
+    async def test_rank_cmd_set_negative_seconds(self, voice_feature, mock_interaction):
+        """Test /rank set fails for negative seconds."""
+        mock_interaction.user.guild_permissions.administrator = True
+        mock_interaction.guild.id = TEST_GUILD_ID
+        
+        mock_user = MagicMock()
+        mock_user.id = 789012
+        mock_user.display_name = "TestUser"
+        
+        await voice_feature.rank_cmd.callback(voice_feature, mock_interaction, action="set", user=mock_user, seconds=-100)
+        
+        # Should reject with validation error
+        mock_interaction.followup.send.assert_called_once()
+        assert "valid number" in mock_interaction.followup.send.call_args[0][0].lower()
+    
+    @pytest.mark.asyncio
+    async def test_rank_cmd_set_success(self, voice_feature, mock_interaction):
+        """Test /rank set successfully updates user's voice hours."""
+        mock_interaction.user.guild_permissions.administrator = True
+        mock_interaction.guild.id = TEST_GUILD_ID
+        
+        mock_user = MagicMock()
+        mock_user.id = 789012
+        mock_user.display_name = "TestUser"
+        
+        # User currently has 36000 seconds (10 hours)
+        with patch.object(voice_feature, 'load_voice_stats', return_value={"789012": 36000}):
+            with patch.object(voice_feature, 'save_voice_stats') as mock_save:
+                await voice_feature.rank_cmd.callback(voice_feature, mock_interaction, action="set", user=mock_user, seconds=180000)
+                
+                # Should save new hours
+                mock_save.assert_called_once()
+                saved_data = mock_save.call_args[0][1]
+                assert saved_data["789012"] == 180000
+                
+                # Should confirm update
+                mock_interaction.followup.send.assert_called_once()
+                call_args = mock_interaction.followup.send.call_args[0][0]
+                assert "✅" in call_args
+                assert "180000" in call_args
+                assert "Before" in call_args and "After" in call_args

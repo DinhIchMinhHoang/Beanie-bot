@@ -830,10 +830,11 @@ class VoiceTrackingFeature(commands.Cog):
     
     @app_commands.command(name="rank", description="Join or manage voice time competition")
     @app_commands.describe(
-        action="Action: add, remove, or list",
-        user="User to add/remove from competition (leave empty to add yourself)"
+        action="Action: add, remove, list, or set",
+        user="User to add/remove/set from competition (leave empty for add/list)",
+        seconds="Seconds to set (required for 'set' action)"
     )
-    async def rank_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member = None):
+    async def rank_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member = None, seconds: int = None):
         """Manage voice time competition list."""
         try:
             await interaction.response.defer(ephemeral=True)
@@ -951,6 +952,37 @@ class VoiceTrackingFeature(commands.Cog):
                 msg += f"{medal} **{name}**: {int(hours)}h {int((hours % 1) * 60)}m\n"
             
             await interaction.followup.send(msg, ephemeral=True)
+            gc.collect()
+        
+        elif action.lower() == "set":
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.followup.send("❌ Only admins can set voice hours.", ephemeral=True)
+                return
+            
+            if not user:
+                await interaction.followup.send("❌ You must specify a user to set hours for.", ephemeral=True)
+                return
+            
+            if seconds is None or seconds < 0:
+                await interaction.followup.send("❌ Please provide a valid number of seconds (0 or greater).", ephemeral=True)
+                return
+            
+            user_id = str(user.id)
+            stats = self.load_voice_stats(guild_id)
+            old_seconds = stats.get(user_id, 0)
+            stats[user_id] = seconds
+            self.save_voice_stats(guild_id, stats)
+            
+            old_hours = int(old_seconds / 3600)
+            new_hours = int(seconds / 3600)
+            new_mins = int((seconds % 3600) / 60)
+            
+            await interaction.followup.send(
+                f"✅ {user.display_name}'s voice time updated:\n"
+                f"**Before:** {old_hours}h\n"
+                f"**After:** {new_hours}h {new_mins}m ({seconds} seconds)",
+                ephemeral=True
+            )
             gc.collect()
         
         else:
