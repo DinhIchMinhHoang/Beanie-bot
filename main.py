@@ -187,71 +187,106 @@ async def load_features():
 @tree.command(name="help", description="Show all available commands and bot features")
 async def help_command(interaction: discord.Interaction):
     """Display comprehensive help information about Beanie Bot."""
-    help_text = """
-# 🤖 **BEANIE BOT - COMMAND HELP**
-
-## 🎤 **VOICE TRACKING & RANKING**
-Command `/rank [action]` - Manage voice time competition
-• **add** - Join the competition (or add another user as admin)
-• **remove** - Leave the competition (or remove user as admin)
-• **list** - View all-time leaderboard with total hours
-
-💎 **Premium Features** (earn hours to unlock ranks):
-• **Gold+**: `/say [message]` - Make Beanie speak in voice (max 50 chars)
-• **Diamond+**: `/on` / `/off` - Enable/disable entrance sounds
-• **Immortal+**: `/add` / `/upload` - Custom entrance sounds
-
-Admin Commands:
-• `/sync_roles` - Manually sync rank roles and roles for all members
-• `/refresh_leaderboard` - Force update voice channel names now
-
----
-
-## 🎂 **BIRTHDAY MANAGEMENT** (Admin Commands)
-• `/birthday add [user] [dd/mm]` - Register a user's birthday
-• `/birthday list` - See all registered birthdays
-
-• `/birthday_channel set [channel]` - Set birthday announcement channel
-• `/birthday_channel add [channel]` - Add another announcement channel
-• `/birthday_channel remove [channel]` - Remove an announcement channel
-• `/birthday_channel list` - View all announcement channels
-
----
-
-## 🎮 **MINECRAFT SERVER** (Azure VM Management)
-• `/status` - Check Azure VM and Minecraft server status
-• `/start` - Start Azure VM and launch Minecraft server
-• `/stop` - Stop Minecraft server and deallocate VM (saves costs)
-• `/restart_mc` - Restart Minecraft server only
-
----
-
-## 📊 **RANKING SYSTEM**
-As you spend time in voice channels, you earn ranks with special perks:
-1. **Bronze** - Basic member
-2. **Silver** - Unlocks at ~10 hours
-3. **Gold** - Unlocks at ~50 hours + `/say` command
-4. **Platinum** - Unlocks at ~100 hours
-5. **Diamond** - Unlocks at ~200 hours + entrance sounds
-6. **Immortal** - Unlocks at ~500 hours + custom sounds
-7. **Godly** - Unlocks at ~1000+ hours
-
----
-
-## ✨ **FEATURES**
-✅ Automatic voice time tracking
-✅ Monthly leaderboard in rank category
-✅ Birthday reminders and announcements
-✅ Minecraft server management with Azure integration
-✅ Multi-guild support
-✅ Customizable entrance sounds
-
----
-
-**Type `/help` anytime to see this message again!**
-"""
     
-    await interaction.response.send_message(help_text, ephemeral=True)
+    # Split help into multiple embeds to avoid message length limit
+    embeds = []
+    
+    # Embed 1: Header and Voice Tracking
+    embed1 = discord.Embed(
+        title="🤖 BEANIE BOT - COMMAND HELP",
+        description="Complete guide to all commands and features",
+        color=discord.Color.blue()
+    )
+    embed1.add_field(
+        name="🎤 VOICE TRACKING & RANKING",
+        value="Command `/rank [action]` - Manage voice time competition\n"
+              "• **add** - Join the competition\n"
+              "• **remove** - Leave the competition\n"
+              "• **list** - View all-time leaderboard\n\n"
+              "💎 **Premium Features**:\n"
+              "• **Gold+**: `/say [message]` - Beanie speaks in voice\n"
+              "• **Diamond+**: `/on` / `/off` - Entrance sounds\n"
+              "• **Immortal+**: `/add` / `/upload` - Custom sounds",
+        inline=False
+    )
+    embed1.add_field(
+        name="🔧 Admin Commands",
+        value="• `/sync_roles` - Sync rank roles for all members\n"
+              "• `/refresh_leaderboard` - Force update channels",
+        inline=False
+    )
+    embeds.append(embed1)
+    
+    # Embed 2: Birthday Management
+    embed2 = discord.Embed(
+        title="🎂 BIRTHDAY MANAGEMENT",
+        description="Admin Commands",
+        color=discord.Color.magenta()
+    )
+    embed2.add_field(
+        name="User Birthdays",
+        value="• `/birthday add [user] [dd/mm]` - Register birthday\n"
+              "• `/birthday list` - See all registered birthdays",
+        inline=False
+    )
+    embed2.add_field(
+        name="Announcement Channels",
+        value="• `/birthday_channel set [channel]` - Set announcement channel\n"
+              "• `/birthday_channel add [channel]` - Add channel\n"
+              "• `/birthday_channel remove [channel]` - Remove channel\n"
+              "• `/birthday_channel list` - View all channels",
+        inline=False
+    )
+    embeds.append(embed2)
+    
+    # Embed 3: Minecraft & Features
+    embed3 = discord.Embed(
+        title="🎮 MINECRAFT & FEATURES",
+        color=discord.Color.green()
+    )
+    embed3.add_field(
+        name="🎮 MINECRAFT SERVER",
+        value="• `/status` - Check VM and server status\n"
+              "• `/start` - Start VM and launch server\n"
+              "• `/stop` - Stop server and deallocate VM\n"
+              "• `/restart_mc` - Restart server only",
+        inline=False
+    )
+    embed3.add_field(
+        name="✨ Features",
+        value="✅ Automatic voice time tracking\n"
+              "✅ Monthly leaderboard\n"
+              "✅ Birthday reminders\n"
+              "✅ Minecraft Azure management\n"
+              "✅ Multi-guild support\n"
+              "✅ Custom entrance sounds",
+        inline=False
+    )
+    embeds.append(embed3)
+    
+    # Embed 4: Ranking System
+    embed4 = discord.Embed(
+        title="📊 RANKING SYSTEM",
+        description="Earn ranks by spending time in voice channels",
+        color=discord.Color.gold()
+    )
+    embed4.add_field(
+        name="Ranks & Perks",
+        value="1. **Iron** - Basic member\n"
+              "2. **Bronze** - ~10 hours\n"
+              "3. **Silver** - ~20 hours\n"
+              "4. **Gold** - ~30 hours + `/say`\n"
+              "5. **Platinum** - ~40 hours + `/say`\n"
+              "6. **Diamond** - ~50 hours + `/sound`\n"
+              "7. **Elite** - ~60 hours + `/sound`\n"
+              "8. **Immortal** - ~70 hours + custom sounds\n"
+              "9. **Legendary** - ~80 hours + custom sounds\n",
+        inline=False
+    )
+    embed4.set_footer(text="Type /help anytime to see this message again!")
+    embeds.append(embed4)
+    
+    await interaction.response.send_message(embeds=embeds, ephemeral=True)
 
 
 # --- Bot Events ---
