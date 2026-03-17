@@ -215,9 +215,9 @@ class TestVoiceTrackingFeature:
                         assert "123456" in saved_data
     
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_on_voice_state_update_join(self, voice_feature, mock_member):
-        """Test tracking when admin joins voice channel."""
-        mock_member.guild_permissions.administrator = True
+        """Test tracking when competitor joins voice channel."""
         mock_member.id = 123456
         mock_member.guild.id = TEST_GUILD_ID
         
@@ -229,17 +229,17 @@ class TestVoiceTrackingFeature:
         after.channel.id = 999
         
         with patch('time.time', return_value=1000):
-            with patch.object(voice_feature, 'load_voice_stats', return_value={}):
-                await voice_feature.on_voice_state_update(mock_member, before, after)
-                
-                # Should track join time
-                assert "123456" in voice_feature.voice_join_times
-                assert voice_feature.voice_join_times["123456"] == 1000
+            with patch.object(voice_feature, 'load_competitors', return_value={"123456": "999"}):
+                with patch.object(voice_feature, 'load_voice_stats', return_value={}):
+                    await voice_feature.on_voice_state_update(mock_member, before, after)
+                    
+                    # Should track join time
+                    assert "123456" in voice_feature.voice_join_times
+                    assert voice_feature.voice_join_times["123456"] == 1000
     
     @pytest.mark.asyncio
     async def test_on_voice_state_update_leave(self, voice_feature, mock_member):
-        """Test saving stats when admin leaves voice channel."""
-        mock_member.guild_permissions.administrator = True
+        """Test saving stats when competitor leaves voice channel."""
         mock_member.id = 123456
         mock_member.guild.id = TEST_GUILD_ID
         
@@ -253,15 +253,16 @@ class TestVoiceTrackingFeature:
         after.channel = None
         
         with patch('time.time', return_value=4600):  # 1 hour later
-            with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 0}):
-                with patch.object(voice_feature, 'save_voice_stats') as mock_save:
-                    await voice_feature.on_voice_state_update(mock_member, before, after)
-                    
-                    # Should save ~1 hour (3600 seconds)
-                    mock_save.assert_called_once()
-                    # guild_id is first param, data is second
-                    saved_data = mock_save.call_args[0][1]
-                    assert saved_data["123456"] >= 3600
+            with patch.object(voice_feature, 'load_competitors', return_value={"123456": "999"}):
+                with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 0}):
+                    with patch.object(voice_feature, 'save_voice_stats') as mock_save:
+                        await voice_feature.on_voice_state_update(mock_member, before, after)
+                        
+                        # Should save ~1 hour (3600 seconds)
+                        mock_save.assert_called_once()
+                        # guild_id is first param, data is second
+                        saved_data = mock_save.call_args[0][1]
+                        assert saved_data["123456"] >= 3600
     
     @pytest.mark.asyncio
     async def test_rank_cmd_set_not_admin(self, voice_feature, mock_interaction):

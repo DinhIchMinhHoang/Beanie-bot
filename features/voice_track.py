@@ -583,13 +583,13 @@ class VoiceTrackingFeature(commands.Cog):
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        """Track admin voice time and handle entrance sounds for Diamond+ users."""
-        # Only track admins
-        if not member.guild_permissions.administrator:
-            return
-        
+        """Track competitor voice time and handle entrance sounds for Diamond+ users."""
+        # Only track competitors (users who signed up for the competition)
         guild_id = member.guild.id
         user_id = str(member.id)
+        competitors = self.load_competitors(guild_id)
+        if user_id not in competitors:
+            return
         now = time.time()
         
         # Joined voice channel
