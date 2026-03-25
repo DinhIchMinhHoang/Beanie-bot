@@ -50,9 +50,9 @@ Track how much time users spend in voice channels and assign ranks based on acti
 ```
 
 ### 📊 Channel Voice Tracking (Admin)
-Monitor total voice activity per channel with automatic name updates.
+Monitor total voice activity time per channel with automatic name updates.
 
-- **Channel Monitoring**: Track cumulative voice time for any voice channel
+- **Channel Occupancy Tracking**: Tracks cumulative time a channel is occupied (from first user join to last user leave)
 - **Automatic Display**: Channel names update with format: `Channel Name・XXh` (e.g., `gaming・125h`)
 - **All-Time Totals**: Persists across monthly resets via archive storage
 - **Monthly Reset**: Automatically archives previous month and starts fresh
@@ -67,7 +67,8 @@ Monitor total voice activity per channel with automatic name updates.
 ```
 
 **How it works**:
-- Tracks user joins/leaves in real-time
+- Tracks when channel becomes occupied (first user joins)
+- Records uptime when channel becomes empty (last user leaves)
 - Updates channel names every 5 minutes
 - Saves stats hourly and archives monthly
 - Displays format: `#gaming・24h` (channel name + total hours)

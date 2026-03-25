@@ -30,7 +30,7 @@ class TestChannelTrackingFeature:
         """Test that ChannelTrackingFeature initializes correctly."""
         assert channel_feature.bot == mock_bot
         assert channel_feature.config == mock_config
-        assert channel_feature.channel_user_times == {}
+        assert channel_feature.channel_occupancy == {}
     
     def test_get_period_key(self, channel_feature, mock_config):
         """Test period key generation."""
@@ -39,54 +39,61 @@ class TestChannelTrackingFeature:
         assert len(period.split('-')) == 2  # YYYY-MM format
     
     @pytest.mark.asyncio
-    async def test_on_voice_state_update_user_joins(self, channel_feature, mock_bot):
-        """Test tracking when user joins a tracked channel."""
-        user_id_str = "123456"
+    async def test_on_voice_state_update_channel_becomes_occupied(self, channel_feature, mock_bot):
+        """Test when first user joins a tracked channel (0→1 occupancy)."""
         channel_id = 789012345
         
-        # Mock members and channels
+        # Mock before: channel empty
         mock_before = MagicMock()
         mock_before.channel = None
         
+        # Mock after: user in channel
         mock_after = MagicMock()
         mock_after.channel = MagicMock(spec=discord.VoiceChannel)
         mock_after.channel.id = channel_id
         
         mock_member = MagicMock()
         mock_member.guild.id = TEST_GUILD_ID
-        mock_member.id = int(user_id_str)
+        mock_member.id = 123456
         
-        # Mock storage
+        # Mock storage and occupancy check (occupancy will be 1)
         storage = MagicMock()
         storage.load_tracked_channels.return_value = [channel_id]
         
         with patch.object(channel_feature, '_get_storage', return_value=storage):
-            await channel_feature.on_voice_state_update(mock_member, mock_before, mock_after)
+            with patch.object(channel_feature, '_get_channel_occupancy', return_value=1):
+                await channel_feature.on_voice_state_update(mock_member, mock_before, mock_after)
         
-        # Should add user to channel tracking
-        assert user_id_str in channel_feature.channel_user_times.get(channel_id, {})
+        # Should mark channel as occupied and record start time
+        channel_occupancy = channel_feature.channel_occupancy.get(channel_id)
+        assert channel_occupancy is not None
+        assert channel_occupancy["is_occupied"] is True
+        assert channel_occupancy["occupy_start_time"] is not None
     
     @pytest.mark.asyncio
-    async def test_on_voice_state_update_user_leaves(self, channel_feature, mock_bot):
-        """Test recording time when user leaves tracked channel."""
+    async def test_on_voice_state_update_channel_becomes_empty(self, channel_feature, mock_bot):
+        """Test when last user leaves a tracked channel (1→0 occupancy)."""
         import time
-        user_id_str = "123456"
         channel_id = 789012345
         
-        # Set up initial state - user in channel
-        channel_feature.channel_user_times[channel_id] = {user_id_str: time.time() - 100}  # 100 sec ago
+        # Set up: channel was occupied
+        start_time = time.time() - 100  # 100 seconds ago
+        channel_feature.channel_occupancy[channel_id] = {
+            "is_occupied": True,
+            "occupy_start_time": start_time
+        }
         
-        # Mock members and channels
+        # Mock before: user was in channel
         mock_before = MagicMock()
         mock_before.channel = MagicMock(spec=discord.VoiceChannel)
         mock_before.channel.id = channel_id
         
+        # Mock after: user left
         mock_after = MagicMock()
-        mock_after.channel = None  # User left
+        mock_after.channel = None
         
         mock_member = MagicMock()
         mock_member.guild.id = TEST_GUILD_ID
-        mock_member.id = int(user_id_str)
         
         # Mock storage
         storage = MagicMock()
@@ -94,12 +101,20 @@ class TestChannelTrackingFeature:
         storage.add_to_channel_stats = MagicMock()
         
         with patch.object(channel_feature, '_get_storage', return_value=storage):
-            with patch.object(channel_feature, '_get_period_key', return_value='2026-03'):
-                await channel_feature.on_voice_state_update(mock_member, mock_before, mock_after)
+            with patch.object(channel_feature, '_get_channel_occupancy', return_value=0):
+                with patch.object(channel_feature, '_get_period_key', return_value='2026-03'):
+                    await channel_feature.on_voice_state_update(mock_member, mock_before, mock_after)
         
-        # Should have recorded time
+        # Should have recorded the uptime duration
         storage.add_to_channel_stats.assert_called_once()
-        assert user_id_str not in channel_feature.channel_user_times.get(channel_id, {})
+        call_args = storage.add_to_channel_stats.call_args
+        assert call_args[0][0] == TEST_GUILD_ID
+        assert call_args[0][1] == channel_id
+        assert call_args[0][2] == '2026-03'
+        assert call_args[0][3] >= 100  # duration should be ~100 seconds
+        
+        # Channel should be marked as not occupied
+        assert channel_feature.channel_occupancy[channel_id]["is_occupied"] is False
     
     @pytest.mark.asyncio
     async def test_on_guild_channel_delete(self, channel_feature):
@@ -110,8 +125,11 @@ class TestChannelTrackingFeature:
         mock_channel.guild.id = TEST_GUILD_ID
         mock_channel.id = channel_id
         
-        # Add channel to RAM state
-        channel_feature.channel_user_times[channel_id] = {"user1": 100}
+        # Add channel to occupancy state
+        channel_feature.channel_occupancy[channel_id] = {
+            "is_occupied": False,
+            "occupy_start_time": None
+        }
         
         # Mock storage
         storage = MagicMock()
@@ -121,4 +139,4 @@ class TestChannelTrackingFeature:
             await channel_feature.on_guild_channel_delete(mock_channel)
         
         storage.remove_tracked_channel.assert_called_once_with(TEST_GUILD_ID, channel_id)
-        assert channel_id not in channel_feature.channel_user_times
+        assert channel_id not in channel_feature.channel_occupancy

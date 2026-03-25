@@ -19,8 +19,8 @@ class ChannelTrackingFeature(commands.Cog):
         self.tree = bot.tree
         self.config = config
         
-        # In-memory tracking: {channel_id: {user_id: join_timestamp}}
-        self.channel_user_times = {}
+        # In-memory tracking: {channel_id: {"is_occupied": bool, "occupy_start_time": timestamp}}
+        self.channel_occupancy = {}
         
         # Background tasks
         self.update_channel_names.start()
@@ -41,13 +41,20 @@ class ChannelTrackingFeature(commands.Cog):
         now = datetime.now(self.config.VIETNAM_TZ)
         return f"{now.year}-{str(now.month).zfill(2)}"
     
+    def _get_channel_occupancy(self, channel_id):
+        """Get current number of non-bot users in channel."""
+        channel = self.bot.get_channel(channel_id)
+        if not channel or not isinstance(channel, discord.VoiceChannel):
+            return 0
+        # Count non-bot members
+        return sum(1 for m in channel.members if not m.bot)
+    
     # --- Event Listeners ---
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        """Track channel-level voice time."""
+        """Track channel-level voice uptime (0→1 and 1→0 transitions)."""
         guild_id = member.guild.id
-        user_id = str(member.id)
         
         # Get storage
         storage = self._get_storage()
@@ -57,27 +64,36 @@ class ChannelTrackingFeature(commands.Cog):
         tracked = storage.load_tracked_channels(guild_id)
         tracked_set = set(tracked)
         
+        channel_id_before = before.channel.id if before.channel else None
+        channel_id_after = after.channel.id if after.channel else None
+        
         # User left a tracked channel
-        if before.channel and before.channel.id in tracked_set and (after.channel is None or after.channel.id != before.channel.id):
-            channel_id = before.channel.id
-            if channel_id in self.channel_user_times and user_id in self.channel_user_times[channel_id]:
-                join_time = self.channel_user_times[channel_id][user_id]
-                duration = time.time() - join_time
-                
-                # Add to channel stats for current period
-                period = self._get_period_key()
-                storage.add_to_channel_stats(guild_id, channel_id, period, duration)
-                
-                del self.channel_user_times[channel_id][user_id]
-                logging.info(f"Recorded {duration:.0f}s for user {user_id} in channel {channel_id}")
+        if channel_id_before and channel_id_before in tracked_set:
+            occupancy = self._get_channel_occupancy(channel_id_before)
+            # Channel just became empty (1→0)
+            if occupancy == 0:
+                if channel_id_before in self.channel_occupancy and self.channel_occupancy[channel_id_before]["is_occupied"]:
+                    start_time = self.channel_occupancy[channel_id_before]["occupy_start_time"]
+                    duration = time.time() - start_time
+                    
+                    # Record the uptime
+                    period = self._get_period_key()
+                    storage.add_to_channel_stats(guild_id, channel_id_before, period, duration)
+                    
+                    self.channel_occupancy[channel_id_before]["is_occupied"] = False
+                    logging.info(f"Channel {channel_id_before} became empty. Recorded {duration:.0f}s uptime")
         
         # User joined a tracked channel
-        if after.channel and after.channel.id in tracked_set and (before.channel is None or before.channel.id != after.channel.id):
-            channel_id = after.channel.id
-            if channel_id not in self.channel_user_times:
-                self.channel_user_times[channel_id] = {}
-            self.channel_user_times[channel_id][user_id] = time.time()
-            logging.info(f"User {user_id} joined tracked channel {channel_id}")
+        if channel_id_after and channel_id_after in tracked_set:
+            occupancy = self._get_channel_occupancy(channel_id_after)
+            # Channel just became occupied (0→1)
+            if occupancy == 1:  # Now has exactly 1 person (this member)
+                if channel_id_after not in self.channel_occupancy:
+                    self.channel_occupancy[channel_id_after] = {}
+                
+                self.channel_occupancy[channel_id_after]["is_occupied"] = True
+                self.channel_occupancy[channel_id_after]["occupy_start_time"] = time.time()
+                logging.info(f"Channel {channel_id_after} became occupied at {self.channel_occupancy[channel_id_after]['occupy_start_time']}")
     
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
@@ -96,8 +112,8 @@ class ChannelTrackingFeature(commands.Cog):
         storage.remove_tracked_channel(guild_id, channel_id)
         
         # Clean up RAM
-        if channel_id in self.channel_user_times:
-            del self.channel_user_times[channel_id]
+        if channel_id in self.channel_occupancy:
+            del self.channel_occupancy[channel_id]
         
         logging.info(f"Cleaned up tracking for deleted channel {channel_id} in guild {guild_id}")
     
@@ -151,7 +167,7 @@ class ChannelTrackingFeature(commands.Cog):
     
     @tasks.loop(hours=1)
     async def checkpoint_channel_stats(self):
-        """Checkpoint pending stats to DB."""
+        """Checkpoint in-progress occupancy to DB (for period boundaries)."""
         await self.bot.wait_until_ready()
         
         storage = self._get_storage()
@@ -167,15 +183,17 @@ class ChannelTrackingFeature(commands.Cog):
                 tracked = storage.load_tracked_channels(guild_id)
                 
                 for channel_id in tracked:
-                    if channel_id in self.channel_user_times:
-                        # Checkpoint active users
-                        for user_id, join_time in list(self.channel_user_times[channel_id].items()):
-                            duration = now - join_time
-                            storage.add_to_channel_stats(guild_id, channel_id, period, duration)
-                            # Reset timer
-                            self.channel_user_times[channel_id][user_id] = now
-                        
-                        logging.info(f"Checkpointed channel {channel_id} in guild {guild_id}")
+                    if channel_id in self.channel_occupancy:
+                        occupancy_state = self.channel_occupancy[channel_id]
+                        # If channel is currently occupied, save the in-progress time
+                        if occupancy_state.get("is_occupied"):
+                            start_time = occupancy_state.get("occupy_start_time")
+                            if start_time:
+                                duration = now - start_time
+                                storage.add_to_channel_stats(guild_id, channel_id, period, duration)
+                                # Reset timer for next checkpoint
+                                occupancy_state["occupy_start_time"] = now
+                                logging.info(f"Checkpointed in-progress occupancy for channel {channel_id}: {duration:.0f}s")
             
             except Exception as e:
                 logging.error(f"Checkpoint error for guild {guild_id}: {e}")
@@ -309,8 +327,8 @@ class ChannelTrackingFeature(commands.Cog):
         storage.remove_tracked_channel(guild_id, ch_id)
         
         # Clean up RAM
-        if ch_id in self.channel_user_times:
-            del self.channel_user_times[ch_id]
+        if ch_id in self.channel_occupancy:
+            del self.channel_occupancy[ch_id]
         
         await interaction.response.send_message(
             f"✅ Stopped tracking **{ch_name}**",

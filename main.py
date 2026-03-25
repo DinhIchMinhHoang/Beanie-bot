@@ -217,12 +217,13 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
     embed1.add_field(
-        name="� CHANNEL TRACKING (Admin)",
-        value="Command `/channel [action]` - Track monthly voice time per channel\n"
+        name="📊 CHANNEL TRACKING (Admin)",
+        value="Command `/channel [action]` - Track voice activity time per channel\n"
               "• **add [channel_id]** - Start tracking a voice channel\n"
               "• **remove [channel_id]** - Stop tracking a voice channel\n"
               "• **list** - View all-time total hours per channel\n"
               "• **edit [channel_id] [hours]** - Manually set channel hours (admin)\n\n"
+              "⏱️ Tracks channel occupancy: Time from first user join to last user leave\n"
               "📈 Channel names automatically display: `Channel Name・XXh`",
         inline=False
     )
