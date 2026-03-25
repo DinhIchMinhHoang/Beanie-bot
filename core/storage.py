@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 import aiosqlite
@@ -144,6 +145,31 @@ class SQLiteStorage:
                 user_id TEXT NOT NULL,
                 total_seconds REAL NOT NULL,
                 PRIMARY KEY (guild_id, archive_year, archive_month, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS tracked_voice_channels (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                enabled BOOLEAN DEFAULT 1,
+                created_at INTEGER,
+                PRIMARY KEY (guild_id, channel_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS channel_voice_stats (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                period TEXT NOT NULL,
+                total_user_seconds REAL DEFAULT 0,
+                PRIMARY KEY (guild_id, channel_id, period)
+            );
+
+            CREATE TABLE IF NOT EXISTS channel_voice_stats_archive (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                archive_year INTEGER NOT NULL,
+                archive_month INTEGER NOT NULL,
+                total_user_seconds REAL,
+                PRIMARY KEY (guild_id, channel_id, archive_year, archive_month)
             );
             """
         )
@@ -611,6 +637,115 @@ class SQLiteStorage:
         )
         return {row["user_id"]: row["total_seconds"] for row in rows}
 
+    # --- Channel Tracking Methods ---
+
+    def load_tracked_channels(self, guild_id: int) -> list[int]:
+        """Load list of tracked channel IDs."""
+        return self._call(self._load_tracked_channels(guild_id))
+
+    async def _load_tracked_channels(self, guild_id: int) -> list[int]:
+        rows = await self._fetchall(
+            "SELECT channel_id FROM tracked_voice_channels WHERE guild_id = ? AND enabled = 1",
+            (guild_id,),
+        )
+        return [row["channel_id"] for row in rows]
+
+    def add_tracked_channel(self, guild_id: int, channel_id: int):
+        """Add a channel to tracking."""
+        return self._call(self._add_tracked_channel(guild_id, channel_id))
+
+    async def _add_tracked_channel(self, guild_id: int, channel_id: int):
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO tracked_voice_channels (guild_id, channel_id, enabled, created_at) VALUES (?, ?, 1, ?)",
+            (guild_id, channel_id, int(time.time())),
+        )
+        await self._conn.commit()
+
+    def remove_tracked_channel(self, guild_id: int, channel_id: int):
+        """Remove a channel from tracking."""
+        return self._call(self._remove_tracked_channel(guild_id, channel_id))
+
+    async def _remove_tracked_channel(self, guild_id: int, channel_id: int):
+        await self._conn.execute(
+            "DELETE FROM tracked_voice_channels WHERE guild_id = ? AND channel_id = ?",
+            (guild_id, channel_id),
+        )
+        await self._conn.commit()
+
+    def load_channel_voice_stats(self, guild_id: int, channel_id: int, period: str) -> float:
+        """Load total seconds for a channel in a period."""
+        return self._call(self._load_channel_voice_stats(guild_id, channel_id, period))
+
+    async def _load_channel_voice_stats(self, guild_id: int, channel_id: int, period: str) -> float:
+        row = await self._fetchone(
+            "SELECT total_user_seconds FROM channel_voice_stats WHERE guild_id = ? AND channel_id = ? AND period = ?",
+            (guild_id, channel_id, period),
+        )
+        return row["total_user_seconds"] if row else 0.0
+
+    def save_channel_voice_stats(self, guild_id: int, channel_id: int, period: str, total_seconds: float):
+        """Save channel stats for a period."""
+        return self._call(self._save_channel_voice_stats(guild_id, channel_id, period, total_seconds))
+
+    async def _save_channel_voice_stats(self, guild_id: int, channel_id: int, period: str, total_seconds: float):
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO channel_voice_stats (guild_id, channel_id, period, total_user_seconds) VALUES (?, ?, ?, ?)",
+            (guild_id, channel_id, period, total_seconds),
+        )
+        await self._conn.commit()
+
+    def add_to_channel_stats(self, guild_id: int, channel_id: int, period: str, seconds: float):
+        """Add seconds to channel stats."""
+        return self._call(self._add_to_channel_stats(guild_id, channel_id, period, seconds))
+
+    async def _add_to_channel_stats(self, guild_id: int, channel_id: int, period: str, seconds: float):
+        current = await self._load_channel_voice_stats(guild_id, channel_id, period)
+        await self._save_channel_voice_stats(guild_id, channel_id, period, current + seconds)
+
+    def reset_channel_stats_for_period(self, guild_id: int, period: str):
+        """Reset all channel stats for a period to 0."""
+        return self._call(self._reset_channel_stats_for_period(guild_id, period))
+
+    async def _reset_channel_stats_for_period(self, guild_id: int, period: str):
+        await self._conn.execute(
+            "DELETE FROM channel_voice_stats WHERE guild_id = ? AND period = ?",
+            (guild_id, period),
+        )
+        await self._conn.commit()
+
+    def archive_channel_stats(self, guild_id: int, archive_year: int, archive_month: int, channel_id: int, total_seconds: float):
+        """Archive channel stats for a month."""
+        return self._call(self._archive_channel_stats(guild_id, archive_year, archive_month, channel_id, total_seconds))
+
+    async def _archive_channel_stats(self, guild_id: int, archive_year: int, archive_month: int, channel_id: int, total_seconds: float):
+        await self._conn.execute(
+            """
+            INSERT OR REPLACE INTO channel_voice_stats_archive
+            (guild_id, channel_id, archive_year, archive_month, total_user_seconds)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (guild_id, channel_id, archive_year, archive_month, total_seconds),
+        )
+        await self._conn.commit()
+
+    def load_all_time_channel_stats(self, guild_id: int, channel_id: int) -> float:
+        """Load all-time total seconds for a channel."""
+        return self._call(self._load_all_time_channel_stats(guild_id, channel_id))
+
+    async def _load_all_time_channel_stats(self, guild_id: int, channel_id: int) -> float:
+        row = await self._fetchone(
+            """
+            SELECT SUM(total_user_seconds) AS total_seconds
+            FROM (
+                SELECT total_user_seconds FROM channel_voice_stats WHERE guild_id = ? AND channel_id = ?
+                UNION ALL
+                SELECT total_user_seconds FROM channel_voice_stats_archive WHERE guild_id = ? AND channel_id = ?
+            )
+            """,
+            (guild_id, channel_id, guild_id, channel_id),
+        )
+        return row["total_seconds"] if row and row["total_seconds"] else 0.0
+
     async def _fetchone(self, sql: str, params=()):
         async with self._conn.execute(sql, params) as cursor:
             return await cursor.fetchone()
@@ -618,6 +753,7 @@ class SQLiteStorage:
     async def _fetchall(self, sql: str, params=()):
         async with self._conn.execute(sql, params) as cursor:
             return await cursor.fetchall()
+
 
     def _get_migration_file_path(self, guild_id: int, guild_dir: str, filename: str) -> str:
         guild_path = os.path.join(guild_dir, filename)

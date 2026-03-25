@@ -146,6 +146,7 @@ async def load_features():
         from features.ai_chat import AIChatFeature
         from features.minecraft import MinecraftFeature
         from features.voice_track import VoiceTrackingFeature, EntryCommandsGroup
+        from features.channel_track import ChannelTrackingFeature
         from features.birthday import BirthdayFeature
         from features.admin import AdminFeature
         
@@ -168,6 +169,11 @@ async def load_features():
         entry_group = EntryCommandsGroup(bot, voice_tracking)
         await bot.add_cog(entry_group)
         logging.info("Loaded Entry commands group")
+        
+        # Initialize and add Channel Tracking feature
+        channel_tracking = ChannelTrackingFeature(bot, BotConfig)
+        await bot.add_cog(channel_tracking)
+        logging.info("Loaded Channel Tracking feature")
         
         # Initialize and add Birthday feature
         birthday = BirthdayFeature(bot, BotConfig)
@@ -211,7 +217,17 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
     embed1.add_field(
-        name="🔧 Admin Commands",
+        name="� CHANNEL TRACKING (Admin)",
+        value="Command `/channel [action]` - Track monthly voice time per channel\n"
+              "• **add [channel_id]** - Start tracking a voice channel\n"
+              "• **remove [channel_id]** - Stop tracking a voice channel\n"
+              "• **list** - View all-time total hours per channel\n"
+              "• **edit [channel_id] [hours]** - Manually set channel hours (admin)\n\n"
+              "📈 Channel names automatically display: `Channel Name・XXh`",
+        inline=False
+    )
+    embed1.add_field(
+        name="�🔧 Admin Commands",
         value="• `/sync_roles` - Sync rank roles for all members\n"
               "• `/refresh_leaderboard` - Force update channels",
         inline=False
