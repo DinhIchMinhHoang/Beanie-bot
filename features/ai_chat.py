@@ -13,6 +13,10 @@ from discord import app_commands
 import discord
 import pytz
 
+# Import rate limiting and validation
+from core.rate_limiter import RateLimiter
+from core.validation import Validator
+
 
 class AIChatFeature(commands.Cog):
     def __init__(self, bot, gemini_client, config):
@@ -29,6 +33,9 @@ class AIChatFeature(commands.Cog):
         # AI processing (per-guild queues)
         self.ai_queues = {}  # {guild_id: Queue}
         self.ai_processing = {}  # {guild_id: bool}
+        
+        # Rate limiting: 10 messages per 60 seconds per user (guild-scoped)
+        self.rate_limiter = RateLimiter(max_calls=10, period_seconds=60, name="ai_chat")
         
         # Start background tasks
         self.cooldown_check.start()
@@ -121,17 +128,34 @@ class AIChatFeature(commands.Cog):
             return
         
         guild_id = message.guild.id
-        is_locked = self.lockdown.get(guild_id, False)
+        user_id = message.author.id
         
+        # Check rate limit
+        allowed, wait_seconds = self.rate_limiter.is_allowed(user_id)
+        if not allowed:
+            await message.reply(f"⏱️ Rate limited. Please wait {wait_seconds:.0f} seconds.", delete_after=5)
+            return
+        
+        # Check lockdown
+        is_locked = self.lockdown.get(guild_id, False)
         if is_locked:
             await message.reply("⏳ AI Chat is cooling down. Please wait.")
             return
         
+        # Extract and validate message text
         text = message.content[len("/beanie"):].strip()
+        
         if not text:
             await message.reply("Please type something after /beanie!")
             return
         
+        # Validate input: length and content safety
+        is_valid, error_msg = Validator.validate_message(text, max_length=500)
+        if not is_valid:
+            await message.reply(f"❌ Invalid message: {error_msg}", delete_after=5)
+            return
+        
+        # Safe to process
         queue = self.get_guild_queue(guild_id)
         await queue.put((message, text))
         
@@ -233,7 +257,14 @@ class AIChatFeature(commands.Cog):
                 for channel in guild.text_channels:
                     try:
                         await channel.send("🔔 AI Chat is available now!")
-                    except:
+                    except (discord.HTTPException, discord.Forbidden, discord.NotFound):
+                        # Expected errors: channel deleted, no permission, etc.
+                        continue
+                    except asyncio.TimeoutError:
+                        logging.warning(f"Timeout sending cooldown message to {channel.name}")
+                        continue
+                    except Exception as e:
+                        logging.error(f"Unexpected error sending cooldown message: {e}")
                         continue
     
     @commands.Cog.listener()
@@ -255,7 +286,14 @@ class AIChatFeature(commands.Cog):
                     try:
                         await channel.send("🔔 AI Chat is available now!")
                         break  # Only send once per guild
-                    except:
+                    except (discord.HTTPException, discord.Forbidden, discord.NotFound):
+                        # Expected errors: channel deleted, no permission, etc.
+                        continue
+                    except asyncio.TimeoutError:
+                        logging.warning(f"Timeout sending cooldown message")
+                        continue
+                    except Exception as e:
+                        logging.error(f"Error sending cooldown message: {e}")
                         continue
 
 

@@ -40,6 +40,13 @@ def mock_interaction():
     interaction.guild.id = TEST_GUILD_ID
     interaction.response = AsyncMock()
     interaction.followup = AsyncMock()
+    
+    # Mock client.fetch_user to return a user with display_name
+    mock_user = MagicMock()
+    mock_user.display_name = "User1"
+    interaction.client = MagicMock()
+    interaction.client.fetch_user = AsyncMock(return_value=mock_user)
+    
     return interaction
 
 

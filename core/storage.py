@@ -171,6 +171,37 @@ class SQLiteStorage:
                 total_user_seconds REAL,
                 PRIMARY KEY (guild_id, channel_id, archive_year, archive_month)
             );
+
+            -- Performance Indexes
+            CREATE INDEX IF NOT EXISTS idx_voice_stats_guild_user 
+                ON voice_stats(guild_id, user_id);
+            
+            CREATE INDEX IF NOT EXISTS idx_voice_stats_user 
+                ON voice_stats(user_id);
+            
+            CREATE INDEX IF NOT EXISTS idx_birthdays_guild_user 
+                ON birthdays(guild_id, user_id);
+            
+            CREATE INDEX IF NOT EXISTS idx_birthdays_date 
+                ON birthdays(birthday);
+            
+            CREATE INDEX IF NOT EXISTS idx_chat_history_guild_timestamp 
+                ON chat_history(guild_id, created_at DESC);
+            
+            CREATE INDEX IF NOT EXISTS idx_chat_history_speaker 
+                ON chat_history(speaker);
+            
+            CREATE INDEX IF NOT EXISTS idx_competitors_guild_user 
+                ON competitors(guild_id, user_id);
+            
+            CREATE INDEX IF NOT EXISTS idx_voice_stats_archive_guild 
+                ON voice_stats_archive(guild_id, archive_year, archive_month);
+            
+            CREATE INDEX IF NOT EXISTS idx_channel_voice_stats_guild 
+                ON channel_voice_stats(guild_id, channel_id);
+            
+            CREATE INDEX IF NOT EXISTS idx_guild_state_guild 
+                ON guild_state(guild_id, state_key);
             """
         )
 

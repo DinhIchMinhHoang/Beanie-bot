@@ -16,6 +16,9 @@ from discord import app_commands
 import discord
 from gtts import gTTS
 
+# Import permission utilities
+from core.permissions import admin_only
+
 
 class VoiceTrackingFeature(commands.Cog):
     def __init__(self, bot, ffmpeg_exec, config):
@@ -420,7 +423,11 @@ class VoiceTrackingFeature(commands.Cog):
                         try:
                             member = await self.bot.fetch_user(user_id)
                             name = member.display_name if member else f"User{user_id}"
-                        except:
+                        except (discord.NotFound, discord.HTTPException) as e:
+                            logging.warning(f"Failed to fetch user {user_id} for leaderboard: {e}")
+                            name = f"User{user_id}"
+                        except Exception as e:
+                            logging.error(f"Unexpected error fetching user {user_id}: {e}")
                             name = f"User{user_id}"
                         
                         if i < len(medals):
@@ -506,7 +513,11 @@ class VoiceTrackingFeature(commands.Cog):
                             try:
                                 member = await self.bot.fetch_user(user_id)
                                 name = member.display_name if member else f"<@{user_id}>"
-                            except:
+                            except (discord.NotFound, discord.HTTPException):
+                                logging.debug(f"User {user_id} not found for hall of fame")
+                                name = f"<@{user_id}>"
+                            except Exception as e:
+                                logging.error(f"Error fetching user {user_id}: {e}")
                                 name = f"<@{user_id}>"
                             
                             medal = medals[i]
@@ -794,11 +805,9 @@ class VoiceTrackingFeature(commands.Cog):
     # --- Slash Commands ---
     
     @app_commands.command(name="sync_roles", description="(Admin) Sync rank roles for the guild now")
+    @admin_only()
     async def sync_roles_cmd(self, interaction: discord.Interaction):
         """Manually sync rank roles."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         if not guild:
@@ -812,11 +821,9 @@ class VoiceTrackingFeature(commands.Cog):
             await interaction.followup.send(f"❌ Role sync failed: {e}", ephemeral=True)
     
     @app_commands.command(name="refresh_leaderboard", description="(Admin) Force refresh voice leaderboard now")
+    @admin_only()
     async def refresh_leaderboard_cmd(self, interaction: discord.Interaction):
         """Manually refresh leaderboard."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True)
         try:
             guild_id = interaction.guild.id
