@@ -343,7 +343,7 @@ class TestVoiceTrackingFeature:
         mock_interaction.response.defer = AsyncMock()
         mock_interaction.followup.send = AsyncMock()
         
-        await voice_feature.admin_force_reset_cmd(mock_interaction)
+        await voice_feature.admin_force_reset_cmd.callback(voice_feature, mock_interaction)
         
         # Should reject with admin error
         mock_interaction.followup.send.assert_called_once()
@@ -381,7 +381,7 @@ class TestVoiceTrackingFeature:
                                         mock_datetime.now.return_value = mock_now
                                         
                                         with patch.object(voice_feature, '_get_storage'):
-                                            await voice_feature.admin_force_reset_cmd(mock_interaction)
+                                            await voice_feature.admin_force_reset_cmd.callback(voice_feature, mock_interaction)
                                             
                                             # Should save reset stats (all 0)
                                             mock_save.assert_called_once()
