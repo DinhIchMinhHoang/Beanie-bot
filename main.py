@@ -230,7 +230,8 @@ async def help_command(interaction: discord.Interaction):
     embed1.add_field(
         name="�🔧 Admin Commands",
         value="• `/sync_roles` - Sync rank roles for all members\n"
-              "• `/refresh_leaderboard` - Force update channels",
+              "• `/refresh_leaderboard` - Force update leaderboard channels\n"
+              "• `/admin_force_reset` - Manually trigger monthly reset (testing)",
         inline=False
     )
     embeds.append(embed1)
@@ -325,8 +326,30 @@ async def help_command(interaction: discord.Interaction):
               "9. **Legendary** - 80 hours + custom sounds\n",
         inline=False
     )
-    embed4.set_footer(text="Type /help anytime to see this message again!")
-    embeds.append(embed4)
+    
+    # Embed 6: Admin Manual Reset
+    embed5 = discord.Embed(
+        title="⚙️ MONTHLY RESET MANAGEMENT",
+        description="Admin tools for voice stats reset",
+        color=discord.Color.red()
+    )
+    embed5.add_field(
+        name="⚠️ Admin Force Reset",
+        value="• `/admin_force_reset` - (Admin Only) Manually trigger monthly reset immediately\n\n"
+              "**What it does:**\n"
+              "1️⃣ Loads previous month's archived stats\n"
+              "2️⃣ Posts 'Hall of Fame' with top 3 users + elite members\n"
+              "3️⃣ Resets all voice stats to 0 hours\n"
+              "4️⃣ Syncs all member ranks back to Iron\n"
+              "5️⃣ Updates leaderboard channels immediately\n\n"
+              "📌 **Use Cases:** Testing, emergency resets, month-end adjustments",
+        inline=False
+    )
+    embed5.set_footer(text="Type /help anytime to see this message again!")
+    embeds.append(embed5)
+    
+    embed4.set_footer(text="")
+    embeds[4] = embed4
     
     await interaction.response.send_message(embeds=embeds, ephemeral=True)
 

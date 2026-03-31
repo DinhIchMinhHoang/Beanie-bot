@@ -66,6 +66,29 @@ Monitor total voice activity time per channel with automatic name updates.
 /channel edit [channel_id] [hours] - Manually set hours (Admin only)
 ```
 
+### 🔄 Monthly Reset Management
+Manually trigger or manage the monthly voice stats reset process.
+
+- **Auto Reset**: Automatically resets stats at month boundary (00:00 UTC on 1st of month)
+- **Manual Trigger**: Admin command for testing or emergency resets
+- **Hall of Fame**: Posts top 3 users and elite members before reset
+- **Rank Sync**: Automatically resets all members to Iron rank after reset
+- **Archive**: Previous month stats backed up for historical reference
+
+**Commands**:
+```
+/admin_force_reset - (Admin Only) Manually trigger monthly reset NOW
+```
+
+**Manual Reset Details**:
+- Checkpoints current voice stats (in-progress sessions)
+- Loads previous month's archived stats for hall of fame
+- Posts embed with top 3 competitors and elite members
+- Saves previous month stats to archive
+- Resets all voice times to 0 hours
+- Syncs rank roles (all members → Iron)
+- Updates leaderboard channels immediately
+
 **How it works**:
 - Tracks when channel becomes occupied (first user joins)
 - Records uptime when channel becomes empty (last user leaves)
@@ -113,11 +136,21 @@ Intelligent conversation powered by Gemini and OpenAI APIs.
 - **DM Support**: Direct message the bot for private chats
 
 ### 🛡️ Admin Tools
-Server administration helpers.
+Comprehensive server administration helpers.
 
 - Guild configuration management
 - User permission controls
+- Monthly reset management
+- Role synchronization
+- Leaderboard administration
 - Moderation helpers
+
+**Admin Commands**:
+```
+/sync_roles              - Sync all member ranks to current voice stats
+/refresh_leaderboard    - Force update leaderboard channels now
+/admin_force_reset      - Manually trigger monthly reset (testing/emergency)
+```
 
 ### 📊 Help System
 Comprehensive `/help` command showing all features.

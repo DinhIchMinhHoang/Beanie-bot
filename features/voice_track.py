@@ -29,6 +29,7 @@ class VoiceTrackingFeature(commands.Cog):
         
         # Voice tracking state
         self.voice_join_times = {}  # {user_id: start_timestamp} - only in RAM
+        self.leaderboard_updating = set()  # {guild_id} - track which guilds are currently updating leaderboards
         
         # Audio infrastructure
         self.audio_lock = asyncio.Lock()
@@ -56,7 +57,10 @@ class VoiceTrackingFeature(commands.Cog):
         """Lazy load voice stats from JSON file for specific guild. Auto-migrates old format."""
         storage = self._get_storage()
         if storage is not None:
-            return storage.load_voice_stats(guild_id)
+            stats = storage.load_voice_stats(guild_id)
+            # Safety check: verify guild_id is being filtered correctly in storage layer
+            logging.debug(f"Loaded {len(stats)} voice stat entries from storage for guild {guild_id}")
+            return stats
 
         guild_config = self.config.get_guild_config(guild_id)
         if not os.path.exists(guild_config.voice_stats_file):
@@ -88,6 +92,33 @@ class VoiceTrackingFeature(commands.Cog):
             logging.error(f"Error migrating voice stats structure: {e}")
             return {}
         return migrated
+    
+    def validate_and_clean_voice_stats(self, guild_id: int):
+        """
+        Safety check: Remove voice stats entries for users who aren't competitors.
+        This prevents cross-guild user data contamination.
+        """
+        try:
+            stats = self.load_voice_stats(guild_id)
+            competitors = self.load_competitors(guild_id)
+            competitors_set = set(competitors.keys())
+            
+            # Find users in stats that aren't competitors
+            extra_users = set(stats.keys()) - competitors_set
+            
+            if extra_users:
+                logging.warning(
+                    f"Found {len(extra_users)} non-competitor users in voice stats for guild {guild_id}: "
+                    f"{extra_users}. Removing them to prevent cross-guild contamination."
+                )
+                # Remove non-competitors from stats
+                cleaned_stats = {uid: stats[uid] for uid in competitors_set if uid in stats}
+                self.save_voice_stats(guild_id, cleaned_stats)
+                return True
+            return False
+        except Exception as e:
+            logging.error(f"Failed to validate voice stats for guild {guild_id}: {e}")
+            return False
     
     def save_voice_stats(self, guild_id: int, data):
         """Save voice stats to JSON file atomically for specific guild."""
@@ -135,6 +166,44 @@ class VoiceTrackingFeature(commands.Cog):
             logging.warning(f"Failed to scan archive files for all-time stats: {e}")
         
         return totals
+    
+    def load_previous_month_archived_stats(self, guild_id: int):
+        """Load the previous month's archived stats for hall of fame display."""
+        storage = self._get_storage()
+        if storage is not None:
+            # Try to load from SQLite archive
+            now = datetime.now(self.config.VIETNAM_TZ)
+            prev_month = now.month - 1 if now.month > 1 else 12
+            prev_year = now.year if now.month > 1 else now.year - 1
+            
+            try:
+                # Try to get from archive table
+                archived = storage.load_voice_stats_archive(guild_id, prev_year, prev_month)
+                if archived:
+                    logging.info(f"Loaded archived stats from SQLite for {prev_year}-{prev_month:02d}")
+                    return archived
+            except Exception as e:
+                logging.warning(f"Failed to load from SQLite archive: {e}")
+        
+        # Fallback: try to load from legacy JSON archive file
+        guild_config = self.config.get_guild_config(guild_id)
+        now = datetime.now(self.config.VIETNAM_TZ)
+        prev_month = now.month - 1 if now.month > 1 else 12
+        prev_year = now.year if now.month > 1 else now.year - 1
+        
+        archive_file = guild_config.get_file_path(f"archive_{prev_year}_{str(prev_month).zfill(2)}.json")
+        try:
+            if os.path.exists(archive_file):
+                with open(archive_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                logging.info(f"Loaded archived stats from {archive_file}")
+                return data
+        except Exception as e:
+            logging.warning(f"Failed to load archive from {archive_file}: {e}")
+        
+        logging.warning(f"No archived stats found for {prev_year}-{prev_month:02d}")
+        return {}
+    
     
     def load_competitors(self, guild_id: int):
         """Lazy load competitors dict from JSON file for specific guild."""
@@ -384,15 +453,31 @@ class VoiceTrackingFeature(commands.Cog):
         """Update voice channel names hourly using current-month stats."""
         await self.bot.wait_until_ready()
         
-        for guild in self.bot.guilds:
+        guild_list = list(self.bot.guilds)
+        # Process guilds sequentially to avoid global rate limits
+        for guild_idx, guild in enumerate(guild_list):
             try:
                 guild_id = guild.id
-                competitors = self.load_competitors(guild_id)
-                if not competitors:
+                
+                # Skip if already updating this guild's leaderboard (prevents concurrent updates)
+                if guild_id in self.leaderboard_updating:
+                    logging.info(f"Leaderboard update already in progress for guild {guild_id}, skipping...")
                     continue
+                
+                self.leaderboard_updating.add(guild_id)
+                logging.info(f"Starting leaderboard update for guild {guild_id}")
+                
+                # Validate and clean voice stats (remove non-competitors to prevent contamination)
+                if self.validate_and_clean_voice_stats(guild_id):
+                    logging.info(f"Cleaned contaminated voice stats for guild {guild_id}")
                 
                 # Checkpoint: Save current voice stats for people in voice channels
                 self.checkpoint_voice_stats(guild_id)
+                
+                competitors = self.load_competitors(guild_id)
+                if not competitors:
+                    self.leaderboard_updating.discard(guild_id)
+                    continue
                 
                 # Use current-month totals for leaderboard channel names.
                 stats = self.load_voice_stats(guild_id)
@@ -437,18 +522,47 @@ class VoiceTrackingFeature(commands.Cog):
                             medal = f"#{i+1}"
                         new_name = f"{medal} {name}: {int(hours)}h"
                         
-                        # Update both name and position to sort channels correctly
-                        await channel.edit(name=new_name, position=i)
+                        # Update channel with rate limit handling (Discord allows ~5 channel updates per 10 sec)
+                        # Use exponential backoff on rate limit errors
+                        max_retries = 3
+                        retry_count = 0
+                        retry_wait = 6  # Start with 6 seconds for retry backoff
                         
-                        # Discord rate limit: 2 channel edits per 10 seconds
-                        # Wait 5 seconds between edits to stay compliant
+                        while retry_count < max_retries:
+                            try:
+                                await channel.edit(name=new_name, position=i)
+                                break  # Success, exit retry loop
+                            except discord.HTTPException as e:
+                                if e.status == 429:  # Rate limited
+                                    retry_count += 1
+                                    if retry_count < max_retries:
+                                        logging.warning(f"Rate limited on channel {channel_id}, retrying in {retry_wait}s... (attempt {retry_count})")
+                                        await asyncio.sleep(retry_wait)
+                                        retry_wait = min(retry_wait * 2, 60)  # Exponential backoff, max 60s
+                                    else:
+                                        logging.error(f"Rate limited {max_retries}x on channel {channel_id}, skipping")
+                                else:
+                                    # Other HTTP error
+                                    logging.error(f"Failed to update leaderboard channel {channel_id}: {e}")
+                                    break
+                        
+                        # Standard delay between channels (spacing out requests to avoid rate limits)
+                        # Discord limit: ~5 PATCH requests per 10 seconds, so 2 seconds between requests
                         if i < len(rankings) - 1:  # Don't wait after last channel
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(2)
                     except Exception as e:
                         logging.error(f"Failed to update leaderboard channel {channel_id}: {e}")
                 
             except Exception as e:
                 logging.error(f"Leaderboard update error for guild {guild.id}: {e}")
+            finally:
+                # Always remove guild from updating set when done (success or error)
+                self.leaderboard_updating.discard(guild_id)
+            
+            # Add delay between guild updates to avoid global rate limits
+            # Only if there are more guilds to process
+            if guild_idx < len(guild_list) - 1:
+                await asyncio.sleep(5)
         
         gc.collect()
     
@@ -484,10 +598,14 @@ class VoiceTrackingFeature(commands.Cog):
                 # 1. Checkpoint current stats first
                 self.checkpoint_voice_stats(guild_id)
                 
-                # 2. Load final stats before reset
+                # 2. Validate and clean voice stats (remove non-competitors to prevent contamination)
+                if self.validate_and_clean_voice_stats(guild_id):
+                    logging.info(f"Cleaned contaminated voice stats for guild {guild_id}")
+                
+                # 3. Load final stats before reset
                 stats = self.load_voice_stats(guild_id)
                 
-                # 3. Find Top 3 and Immortal/Legendary users
+                # 4. Find Top 3 and Immortal/Legendary users
                 rankings = []
                 for user_id, total_seconds in stats.items():
                     total_hours = total_seconds / 3600
@@ -496,7 +614,7 @@ class VoiceTrackingFeature(commands.Cog):
                 
                 rankings.sort(key=lambda x: x[1], reverse=True)
                 
-                # 4. Prepare Hall of Fame message
+                # 5. Prepare Hall of Fame message
                 general_channel_id = guild_config.get_general_channel_id()
                 if general_channel_id:
                     channel = self.bot.get_channel(general_channel_id)
@@ -554,16 +672,21 @@ class VoiceTrackingFeature(commands.Cog):
                         except Exception as e:
                             logging.error(f"Failed to send Hall of Fame for guild {guild_id}: {e}")
                 
-                # 5. Backup stats to archive file
+                # 5. Backup stats to archive file (archive to PREVIOUS month, not current)
                 storage = self._get_storage()
+                archive_year = now.year
+                archive_month = now.month - 1 if now.month > 1 else 12
+                if now.month == 1:
+                    archive_year -= 1  # If January, archive goes to December of previous year
+                
                 if storage is not None:
                     try:
-                        storage.archive_voice_stats(guild_id, now.year, now.month, stats)
-                        logging.info(f"Archived stats for guild {guild_id} to SQLite")
+                        storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
+                        logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
                     except Exception as e:
                         logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
                 else:
-                    archive_filename = guild_config.get_file_path(f"archive_{now.year}_{str(now.month).zfill(2)}.json")
+                    archive_filename = guild_config.get_file_path(f"archive_{archive_year}_{str(archive_month).zfill(2)}.json")
                     try:
                         with open(archive_filename, "w", encoding="utf-8") as f:
                             json.dump(stats, f, indent=2, ensure_ascii=False)
@@ -864,8 +987,11 @@ class VoiceTrackingFeature(commands.Cog):
             # 1. Checkpoint current stats first
             self.checkpoint_voice_stats(guild_id)
             
-            # 2. Load final stats before reset
-            stats = self.load_voice_stats(guild_id)
+            # 2. Load PREVIOUS MONTH's archived stats for hall of fame (not current fresh stats)
+            stats = self.load_previous_month_archived_stats(guild_id)
+            if not stats:
+                logging.warning(f"No archived stats found for manual reset hall of fame, falling back to current stats")
+                stats = self.load_voice_stats(guild_id)
             
             # 3. Find Top 3 and Immortal/Legendary users
             rankings = []
@@ -935,13 +1061,18 @@ class VoiceTrackingFeature(commands.Cog):
                     except Exception as e:
                         logging.error(f"Failed to send Hall of Fame for guild {guild_id}: {e}")
             
-            # 5. Backup stats to archive file
+            # 5. Backup stats to archive file (archive to PREVIOUS month)
             storage = self._get_storage()
+            now = datetime.now(self.config.VIETNAM_TZ)
+            archive_year = now.year
+            archive_month = now.month - 1 if now.month > 1 else 12
+            if now.month == 1:
+                archive_year -= 1  # If January, archive goes to December of previous year
+            
             if storage is not None:
                 try:
-                    now = datetime.now(self.config.VIETNAM_TZ)
-                    storage.archive_voice_stats(guild_id, now.year, now.month, stats)
-                    logging.info(f"Archived stats for guild {guild_id} to SQLite")
+                    storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
+                    logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
                 except Exception as e:
                     logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
             

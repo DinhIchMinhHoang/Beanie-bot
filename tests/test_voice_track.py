@@ -336,6 +336,64 @@ class TestVoiceTrackingFeature:
                 assert "Before" in call_args and "After" in call_args
     
     @pytest.mark.asyncio
+    async def test_admin_force_reset_not_admin(self, voice_feature, mock_interaction):
+        """Test /admin_force_reset fails if user is not admin."""
+        mock_interaction.user.guild_permissions.administrator = False
+        mock_interaction.guild.id = TEST_GUILD_ID
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.followup.send = AsyncMock()
+        
+        await voice_feature.admin_force_reset_cmd(mock_interaction)
+        
+        # Should reject with admin error
+        mock_interaction.followup.send.assert_called_once()
+        assert "Admin only" in mock_interaction.followup.send.call_args[0][0]
+    
+    @pytest.mark.asyncio
+    async def test_admin_force_reset_success(self, voice_feature, mock_interaction, mock_bot, mock_config):
+        """Test /admin_force_reset successfully archives and resets stats."""
+        mock_interaction.user.guild_permissions.administrator = True
+        mock_interaction.user.display_name = "TestAdmin"
+        mock_interaction.guild.id = TEST_GUILD_ID
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.followup.send = AsyncMock()
+        
+        # Setup mock guild
+        mock_guild = mock_interaction.guild
+        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
+        
+        # Mock the archived stats
+        archived_stats = {"123456": 264000, "789012": 216000}  # Archived from March
+        
+        with patch.object(voice_feature, 'load_previous_month_archived_stats', return_value=archived_stats):
+            with patch.object(voice_feature, 'checkpoint_voice_stats'):
+                with patch.object(voice_feature, 'load_voice_stats', return_value={}):
+                    with patch.object(voice_feature, 'save_voice_stats') as mock_save:
+                        with patch.object(voice_feature, 'apply_rank_roles_to_guild', new_callable=AsyncMock):
+                            with patch.object(voice_feature, 'load_state', return_value={"last_reset_month": 3}):
+                                with patch.object(voice_feature, 'save_state'):
+                                    with patch('features.voice_track.datetime') as mock_datetime:
+                                        # Mock datetime to April 1, 2026
+                                        mock_now = MagicMock()
+                                        mock_now.month = 4
+                                        mock_now.year = 2026
+                                        mock_now.strftime.return_value = "01/04/2026 00:48"
+                                        mock_datetime.now.return_value = mock_now
+                                        
+                                        with patch.object(voice_feature, '_get_storage'):
+                                            await voice_feature.admin_force_reset_cmd(mock_interaction)
+                                            
+                                            # Should save reset stats (all 0)
+                                            mock_save.assert_called_once()
+                                            saved_data = mock_save.call_args[0][1]
+                                            # All values should be 0
+                                            for value in saved_data.values():
+                                                assert value == 0
+                                            
+                                            # Should send hall of fame message
+                                            mock_interaction.followup.send.assert_called()
+    
+    @pytest.mark.asyncio
     async def test_leaderboard_uses_guild_members_not_global_users(self, voice_feature, mock_bot, mock_config):
         """Test leaderboard uses guild.get_member() for guild-specific display names (FIX #2)."""
         # Create mock guild and members with guild-specific nicknames
