@@ -86,10 +86,15 @@ class BirthdayFeature(commands.Cog):
         now = datetime.now(self.config.VIETNAM_TZ)
         today = now.date()
         
-        # Only run once per day at exactly 00:00
-        if now.hour != 0 or now.minute != 0 or self.last_birthday_check == today:
+        # Only run once per day - check if already processed today
+        if self.last_birthday_check == today:
             return
         
+        # Only process during hour 0 (midnight to 1 AM window)
+        if now.hour != 0:
+            return
+        
+        # Mark as processed for today
         self.last_birthday_check = today
         today_str = now.strftime("%d/%m")
         

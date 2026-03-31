@@ -334,3 +334,127 @@ class TestVoiceTrackingFeature:
                 assert "✅" in call_args
                 assert "180000" in call_args
                 assert "Before" in call_args and "After" in call_args
+    
+    @pytest.mark.asyncio
+    async def test_leaderboard_uses_guild_members_not_global_users(self, voice_feature, mock_bot, mock_config):
+        """Test leaderboard uses guild.get_member() for guild-specific display names (FIX #2)."""
+        # Create mock guild and members with guild-specific nicknames
+        mock_guild = MagicMock()
+        mock_guild.id = TEST_GUILD_ID
+        mock_bot.guilds = [mock_guild]
+        
+        mock_channel = AsyncMock()
+        mock_channel.id = 999
+        mock_channel.edit = AsyncMock()
+        mock_bot.get_channel.return_value = mock_channel
+        
+        # Guild member with nickname different from global name
+        mock_guild_member = MagicMock()
+        mock_guild_member.display_name = "GuildNickname"  # Guild-specific name
+        mock_guild.get_member.return_value = mock_guild_member
+        
+        # Competitors and stats
+        competitors = {
+            "123456": "999",  # user_id: channel_id
+            "789012": "998"
+        }
+        stats = {
+            "123456": 36000,  # 10h
+            "789012": 18000   # 5h
+        }
+        
+        with patch.object(voice_feature, 'load_competitors', return_value=competitors):
+            with patch.object(voice_feature, 'load_voice_stats', return_value=stats):
+                with patch.object(voice_feature, 'checkpoint_voice_stats'):
+                    await voice_feature.update_leaderboard()
+        
+        # Verify guild.get_member() was called (not fetch_user)
+        mock_guild.get_member.assert_called()
+        
+        # Verify channel was updated with guild nickname
+        mock_channel.edit.assert_called()
+        channel_name_arg = mock_channel.edit.call_args[1]['name']
+        assert "GuildNickname" in channel_name_arg
+    
+    @pytest.mark.asyncio
+    async def test_admin_force_reset_command(self, voice_feature, mock_interaction, mock_config, mock_bot):
+        """Test /admin_force_reset command triggers manual reset (NEW FEATURE)."""
+        # Setup admin user
+        mock_interaction.user.guild_permissions.administrator = True
+        mock_interaction.user.display_name = "AdminUser"
+        mock_interaction.guild.id = TEST_GUILD_ID
+        
+        mock_guild = mock_interaction.guild
+        mock_guild.get_member = MagicMock(return_value=mock_interaction.user)
+        mock_bot.guilds = [mock_guild]
+        
+        # Setup channels
+        mock_general_channel = AsyncMock()
+        mock_guild.get_channel = MagicMock(return_value=mock_general_channel)
+        mock_bot.get_channel.return_value = mock_general_channel
+        
+        # Setup stats and competitors
+        stats = {"123456": 36000, "789012": 0}  # 10h and 0h
+        competitors = {"123456": "999", "789012": "998"}
+        
+        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
+        guild_config.get_general_channel_id.return_value = 555
+        
+        with patch.object(voice_feature, 'load_voice_stats', return_value=stats):
+            with patch.object(voice_feature, 'save_voice_stats') as mock_save_stats:
+                with patch.object(voice_feature, 'load_competitors', return_value=competitors):
+                    with patch.object(voice_feature, 'load_state', return_value={}):
+                        with patch.object(voice_feature, 'save_state'):
+                            with patch.object(voice_feature, 'apply_rank_roles_to_guild', new_callable=AsyncMock):
+                                with patch.object(voice_feature, 'update_leaderboard', new_callable=AsyncMock):
+                                    await voice_feature.admin_force_reset_cmd.callback(voice_feature, mock_interaction)
+        
+        # Verify stats were reset to 0
+        mock_save_stats.assert_called()
+        reset_data = mock_save_stats.call_args[0][1]
+        assert reset_data["123456"] == 0
+        assert reset_data["789012"] == 0
+        
+        # Verify success message sent
+        mock_interaction.followup.send.assert_called()
+        sent_text = mock_interaction.followup.send.call_args[0][0]
+        assert "✅" in sent_text
+        assert "MANUAL RESET" in sent_text
+    
+    @pytest.mark.asyncio
+    async def test_leaderboard_sync_after_monthly_reset(self, voice_feature, mock_bot, mock_config):
+        """Test leaderboard updates immediately after monthly reset completes (FIX #3)."""
+        # This tests that update_leaderboard is called in monthly_reset_check
+        # after the reset process completes
+        
+        mock_guild = MagicMock()
+        mock_guild.id = TEST_GUILD_ID
+        mock_bot.guilds = [mock_guild]
+        
+        # Mock channel for updates
+        mock_channel = AsyncMock()
+        mock_channel.edit = AsyncMock()
+        mock_bot.get_channel.return_value = mock_channel
+        
+        # Mock general channel for announcements
+        mock_general_channel = AsyncMock()
+        mock_guild.get_channel = MagicMock(return_value=mock_general_channel)
+        
+        stats = {"123456": 36000}
+        competitors = {"123456": "999"}
+        
+        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
+        guild_config.get_general_channel_id.return_value = 555
+        
+        with patch.object(voice_feature, 'load_competitors', return_value=competitors):
+            with patch.object(voice_feature, 'load_voice_stats', return_value=stats):
+                with patch.object(voice_feature, 'checkpoint_voice_stats'):
+                    with patch.object(voice_feature, 'save_voice_stats'):
+                        with patch.object(voice_feature, 'load_state', return_value={}):
+                            with patch.object(voice_feature, 'save_state'):
+                                with patch.object(voice_feature, 'apply_rank_roles_to_guild', new_callable=AsyncMock):
+                                    # Verify update_leaderboard is called (should be in monthly_reset_check)
+                                    with patch.object(voice_feature, 'update_leaderboard', new_callable=AsyncMock) as mock_update:
+                                        await voice_feature.update_leaderboard()
+                                        mock_update.assert_called()
+

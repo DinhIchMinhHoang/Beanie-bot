@@ -421,8 +421,9 @@ class VoiceTrackingFeature(commands.Cog):
                             continue
                         
                         try:
-                            member = await self.bot.fetch_user(user_id)
-                            name = member.display_name if member else f"User{user_id}"
+                            # Use guild member for guild-specific display name (not global user)
+                            guild_member = guild.get_member(int(user_id))
+                            name = guild_member.display_name if guild_member else f"User{user_id}"
                         except (discord.NotFound, discord.HTTPException) as e:
                             logging.warning(f"Failed to fetch user {user_id} for leaderboard: {e}")
                             name = f"User{user_id}"
@@ -511,8 +512,9 @@ class VoiceTrackingFeature(commands.Cog):
                         
                         for i, (user_id, hours, rank_name) in enumerate(top_3):
                             try:
-                                member = await self.bot.fetch_user(user_id)
-                                name = member.display_name if member else f"<@{user_id}>"
+                                # Use guild member for guild-specific display name
+                                guild_member = guild.get_member(int(user_id))
+                                name = guild_member.display_name if guild_member else f"<@{user_id}>"
                             except (discord.NotFound, discord.HTTPException):
                                 logging.debug(f"User {user_id} not found for hall of fame")
                                 name = f"<@{user_id}>"
@@ -533,8 +535,8 @@ class VoiceTrackingFeature(commands.Cog):
                             elite_lines = []
                             for uid, hrs, rank in elite_users:
                                 try:
-                                    user = await self.bot.fetch_user(uid)
-                                    display = user.display_name if user else f'<@{uid}>'
+                                    guild_member = guild.get_member(uid)
+                                    display = guild_member.display_name if guild_member else f'<@{uid}>'
                                 except Exception:
                                     display = f'<@{uid}>'
                                 elite_lines.append(f"⭐ {display}: **{rank}**")
@@ -584,6 +586,13 @@ class VoiceTrackingFeature(commands.Cog):
                 # 8. Update state
                 state["last_reset_month"] = current_month
                 self.save_state(guild_id, state)
+                
+                # 9. SYNC: Update leaderboard immediately after reset (don't wait up to 55 min)
+                logging.info(f"Syncing leaderboard immediately after reset for guild {guild_id}")
+                try:
+                    await self.update_leaderboard()
+                except Exception as e:
+                    logging.error(f"Failed to sync leaderboard after reset for guild {guild_id}: {e}")
                 
             except Exception as e:
                 logging.error(f"Monthly reset error for guild {guild.id}: {e}")
@@ -835,6 +844,148 @@ class VoiceTrackingFeature(commands.Cog):
             logging.error(f"Manual leaderboard refresh failed: {e}")
             await interaction.followup.send(f"❌ Refresh failed: {e}", ephemeral=True)
     
+    @app_commands.command(name="admin_force_reset", description="(Admin Only) Manually trigger monthly reset NOW")
+    @admin_only()
+    async def admin_force_reset_cmd(self, interaction: discord.Interaction):
+        """Force monthly reset immediately (for testing/emergency)."""
+        await interaction.response.defer(ephemeral=True)
+        
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("❌ Admin only!", ephemeral=True)
+            return
+        
+        try:
+            guild = interaction.guild
+            guild_id = guild.id
+            guild_config = self.config.get_guild_config(guild_id)
+            
+            logging.info(f"⚠️  MANUAL FORCE RESET triggered by {interaction.user.display_name} for guild {guild_id}")
+            
+            # 1. Checkpoint current stats first
+            self.checkpoint_voice_stats(guild_id)
+            
+            # 2. Load final stats before reset
+            stats = self.load_voice_stats(guild_id)
+            
+            # 3. Find Top 3 and Immortal/Legendary users
+            rankings = []
+            for user_id, total_seconds in stats.items():
+                total_hours = total_seconds / 3600
+                rank_name, role_id, perks = self.get_user_rank(total_hours)
+                rankings.append((int(user_id), total_hours, rank_name))
+            
+            rankings.sort(key=lambda x: x[1], reverse=True)
+            
+            # 4. Prepare Hall of Fame message
+            general_channel_id = guild_config.get_general_channel_id()
+            if general_channel_id:
+                channel = self.bot.get_channel(general_channel_id)
+                if channel and rankings:
+                    now = datetime.now(self.config.VIETNAM_TZ)
+                    embed = discord.Embed(
+                        title="🏆 HỘI ĐƯỜNG DANH VỌNG - THÁNG QUA 🏆",
+                        description=f"Chúc mừng những chiến binh đã cống hiến thời gian cho server!",
+                        color=discord.Color.gold()
+                    )
+                    
+                    medals = ["🥇", "🥈", "🥉"]
+                    top_3 = rankings[:3]
+                    
+                    for i, (user_id, hours, rank_name) in enumerate(top_3):
+                        try:
+                            # Use guild member for guild-specific display name
+                            guild_member = guild.get_member(int(user_id))
+                            name = guild_member.display_name if guild_member else f"<@{user_id}>"
+                        except (discord.NotFound, discord.HTTPException):
+                            logging.debug(f"User {user_id} not found for hall of fame")
+                            name = f"<@{user_id}>"
+                        except Exception as e:
+                            logging.error(f"Error fetching user {user_id}: {e}")
+                            name = f"<@{user_id}>"
+                        
+                        medal = medals[i]
+                        embed.add_field(
+                            name=f"{medal} {name}",
+                            value=f"**{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
+                            inline=False
+                        )
+                    
+                    # List Immortal/Legendary users
+                    elite_users = [r for r in rankings if r[2] in ["Immortal", "Legendary"]]
+                    if elite_users:
+                        elite_lines = []
+                        for uid, hrs, rank in elite_users:
+                            try:
+                                guild_member = guild.get_member(uid)
+                                display = guild_member.display_name if guild_member else f'<@{uid}>'
+                            except Exception:
+                                display = f'<@{uid}>'
+                            elite_lines.append(f"⭐ {display}: **{rank}**")
+                        elite_text = "\n".join(elite_lines)
+                        embed.add_field(
+                            name="💎 Immortal & Legendary Warriors",
+                            value=elite_text[:1024],
+                            inline=False
+                        )
+                    
+                    embed.set_footer(text=f"⚠️ MANUAL RESET by {interaction.user.display_name} at {now.strftime('%d/%m/%Y %H:%M')} (Giờ Việt Nam)")
+                    
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception as e:
+                        logging.error(f"Failed to send Hall of Fame for guild {guild_id}: {e}")
+            
+            # 5. Backup stats to archive file
+            storage = self._get_storage()
+            if storage is not None:
+                try:
+                    now = datetime.now(self.config.VIETNAM_TZ)
+                    storage.archive_voice_stats(guild_id, now.year, now.month, stats)
+                    logging.info(f"Archived stats for guild {guild_id} to SQLite")
+                except Exception as e:
+                    logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
+            
+            # 6. Reset all stats to 0
+            reset_stats = {user_id: 0 for user_id in stats.keys()}
+            self.save_voice_stats(guild_id, reset_stats)
+            logging.info(f"Voice stats reset to 0 for all users in guild {guild_id}")
+            
+            # 7. Sync roles to match new stats (everyone back to Iron)
+            try:
+                await self.apply_rank_roles_to_guild(guild)
+                logging.info(f"Manual reset: roles synced for guild {guild_id}")
+            except Exception as e:
+                logging.error(f"Failed to sync roles after manual reset for guild {guild_id}: {e}")
+            
+            # 8. Update state - increment month (or keep current if same month)
+            state = self.load_state(guild_id)
+            now = datetime.now(self.config.VIETNAM_TZ)
+            current_month = now.month
+            state["last_reset_month"] = current_month
+            self.save_state(guild_id, state)
+            
+            # 9. Update leaderboard immediately
+            try:
+                await self.update_leaderboard()
+                logging.info(f"Leaderboard synced after manual reset for guild {guild_id}")
+            except Exception as e:
+                logging.error(f"Failed to sync leaderboard after manual reset: {e}")
+            
+            await interaction.followup.send(
+                f"✅ **MANUAL RESET COMPLETED**\n"
+                f"• Voice stats reset to 0\n"
+                f"• Roles synced (all back to Iron)\n"
+                f"• Leaderboard updated\n"
+                f"• Hall of Fame posted",
+                ephemeral=True
+            )
+            
+            gc.collect()
+        
+        except Exception as e:
+            logging.error(f"Manual force reset failed: {e}")
+            await interaction.followup.send(f"❌ Reset failed: {e}", ephemeral=True)
+    
     @app_commands.command(name="rank", description="Join or manage voice time competition")
     @app_commands.describe(
         action="Action: add, remove, list, or set",
@@ -950,8 +1101,9 @@ class VoiceTrackingFeature(commands.Cog):
             medals = ["🥇", "🥈", "🥉"]
             for i, (uid, hours) in enumerate(rankings):
                 try:
-                    member = await self.bot.fetch_user(uid)
-                    name = member.display_name if member else f"<@{uid}>"
+                    # Use guild member for guild-specific display name
+                    guild_member = guild.get_member(uid)
+                    name = guild_member.display_name if guild_member else f"<@{uid}>"
                 except:
                     name = f"<@{uid}>"
                 

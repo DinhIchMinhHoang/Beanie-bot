@@ -157,7 +157,7 @@ class TestBirthdayFeature:
         # Mock timezone
         mock_config.VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
         
-        # Mock current time to NOT be midnight
+        # Mock current time to NOT be midnight (10:30 AM)
         mock_now = datetime(2026, 3, 12, 10, 30, 0, tzinfo=mock_config.VIETNAM_TZ)
         
         with patch('features.birthday.datetime') as mock_datetime:
@@ -167,8 +167,69 @@ class TestBirthdayFeature:
             with patch.object(birthday_feature, 'load_birthdays') as mock_load:
                 await birthday_feature.birthday_check()
                 
-                # Should NOT load birthdays since it's not midnight
+                # Should NOT load birthdays since it's not hour 0
                 mock_load.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_birthday_check_already_checked_today(self, birthday_feature, mock_config):
+        """Test birthday check skips if already checked today (NEW FIX)."""
+        mock_config.VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+        
+        # Set check to today
+        today = datetime(2026, 3, 12, 6, 0, 0, tzinfo=mock_config.VIETNAM_TZ).date()
+        birthday_feature.last_birthday_check = today
+        
+        # Mock time to be midnight (hour 0)
+        mock_now = datetime(2026, 3, 12, 0, 30, 0, tzinfo=mock_config.VIETNAM_TZ)
+        
+        with patch('features.birthday.datetime') as mock_datetime:
+            mock_datetime.now.return_value = mock_now
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            
+            with patch.object(birthday_feature, 'load_birthdays') as mock_load:
+                await birthday_feature.birthday_check()
+                
+                # Should skip because already checked today
+                mock_load.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_birthday_check_flexible_minute_window(self, birthday_feature, mock_config, mock_bot):
+        """Test birthday check runs during HOUR 0 with any minute (NEW FIX)."""
+        mock_config.VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+        
+        # Set check to different day
+        birthday_feature.last_birthday_check = datetime(2026, 3, 11, 6, 0, 0, tzinfo=mock_config.VIETNAM_TZ).date()
+        
+        # Test at 00:22 (which SHOULD work now after fix - it's hour 0)
+        mock_now = datetime(2026, 3, 12, 0, 22, 0, tzinfo=mock_config.VIETNAM_TZ)
+        today_str = "12/03"
+        
+        # Setup guild and birthday
+        mock_guild = MagicMock()
+        mock_guild.id = TEST_GUILD_ID
+        birthday_feature.bot.guilds = [mock_guild]
+        
+        mock_channel = AsyncMock()
+        birthday_feature.bot.get_channel.return_value = mock_channel
+        
+        mock_user = MagicMock()
+        mock_user.display_name = "User"
+        birthday_feature.bot.fetch_user = AsyncMock(return_value=mock_user)
+        
+        test_birthdays = {"123456": today_str}
+        
+        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
+        guild_config.get_birthday_channel_ids.return_value = [123456]
+        
+        with patch('features.birthday.datetime') as mock_datetime:
+            mock_datetime.now.return_value = mock_now
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            
+            with patch.object(birthday_feature, 'load_birthdays', return_value=test_birthdays):
+                await birthday_feature.birthday_check()
+                
+                # AFTER FIX: Should send birthday message (not skip due to minute != 0)
+                mock_channel.send.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_birthday_check_at_midnight_with_birthday(self, birthday_feature, mock_config, mock_bot):
