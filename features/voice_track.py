@@ -299,25 +299,25 @@ class VoiceTrackingFeature(commands.Cog):
             logging.error(f"Failed to save state for guild {guild_id}: {e}")
     
     def get_user_rank(self, total_hours):
-        """Get rank name, perks, and role ID based on total hours."""
-        if total_hours >= 80:
-            return ("Legendary", 1475814299120435301, ["/say", "/entry on/off", "/entry add - Custom TTS/File"])
-        elif total_hours >= 70:
-            return ("Immortal", 1475813978201653330, ["/say", "/entry on/off", "/entry add - Custom TTS/File"])
+        """Get rank name, perks, role ID, and coin multiplier based on total hours."""
+        if total_hours >= 160:
+            return ("Legendary", 1475814299120435301, ["/say", "/entry on/off", "/entry add - Custom TTS/File"], 4.0)
+        elif total_hours >= 140:
+            return ("Immortal", 1475813978201653330, ["/say", "/entry on/off", "/entry add - Custom TTS/File"], 3.5)
+        elif total_hours >= 120:
+            return ("Elite", 1475813832411709461, ["/say", "/entry on/off", 'Default Entrance: "Xin chào {name}"'], 3.0)
+        elif total_hours >= 100:
+            return ("Diamond", 1475808953681051738, ["/say", "/entry on/off", 'Default Entrance: "Xin chào {name}"'], 2.6)
+        elif total_hours >= 80:
+            return ("Platinum", 1475809119049875528, ["/say"], 2.2)
         elif total_hours >= 60:
-            return ("Elite", 1475813832411709461, ["/say", "/entry on/off", 'Default Entrance: "Xin chào {name}"'])
-        elif total_hours >= 50:
-            return ("Diamond", 1475808953681051738, ["/say", "/entry on/off", 'Default Entrance: "Xin chào {name}"'])
+            return ("Gold", 1475808898370769018, ["/say"], 1.8)
         elif total_hours >= 40:
-            return ("Platinum", 1475809119049875528, ["/say"])
-        elif total_hours >= 30:
-            return ("Gold", 1475808898370769018, ["/say"])
+            return ("Silver", 1475808847649181778, [], 1.5)
         elif total_hours >= 20:
-            return ("Silver", 1475808847649181778, [])
-        elif total_hours >= 10:
-            return ("Bronze", 1475808729705353290, [])
+            return ("Bronze", 1475808729705353290, [], 1.2)
         else:
-            return ("Iron", 1475819335514849391, [])
+            return ("Iron", 1475819335514849391, [], 1.0)
 
     def get_rank_role_id_for_guild(self, guild_id: int, rank_name: str):
         """Get role ID for a rank name using guild-specific configured role IDs."""
@@ -359,6 +359,14 @@ class VoiceTrackingFeature(commands.Cog):
                 stats[user_id] = 0
             stats[user_id] += duration
             guild_times[user_id] = now  # Reset to current time
+
+            # Economy: earn coins for time spent in voice
+            total_hours = stats[user_id] / 3600
+            _, _, _, mult = self.get_user_rank(total_hours)
+            coins_earned = (duration / 600) * mult  # 1 base coin per 10 min
+            storage = self._get_storage()
+            if storage:
+                storage.add_coins(guild_id, int(user_id), coins_earned)
         
         self.save_voice_stats(guild_id, stats)
         gc.collect()
@@ -629,7 +637,7 @@ class VoiceTrackingFeature(commands.Cog):
                 rankings = []
                 for user_id, total_seconds in stats.items():
                     total_hours = total_seconds / 3600
-                    rank_name, role_id, perks = self.get_user_rank(total_hours)
+                    rank_name, role_id, perks, _ = self.get_user_rank(total_hours)
                     rankings.append((int(user_id), total_hours, rank_name))
                 
                 rankings.sort(key=lambda x: x[1], reverse=True)
@@ -730,6 +738,12 @@ class VoiceTrackingFeature(commands.Cog):
                 state["last_reset_month"] = current_month
                 self.save_state(guild_id, state)
                 
+                # 8.5. Reset economy purchases for this guild
+                storage = self._get_storage()
+                if storage:
+                    storage.clear_purchases(guild_id)
+                    logging.info(f"Economy purchases cleared for guild {guild_id}")
+                
                 # 9. SYNC: Update leaderboard immediately after reset (don't wait up to 55 min)
                 logging.info(f"Syncing leaderboard immediately after reset for guild {guild_id}")
                 try:
@@ -763,7 +777,7 @@ class VoiceTrackingFeature(commands.Cog):
             stats = self.load_voice_stats(guild_id)
             total_seconds = stats.get(user_id, 0)
             total_hours = total_seconds / 3600
-            rank_name, role_id, perks = self.get_user_rank(total_hours)
+            rank_name, role_id, perks, _ = self.get_user_rank(total_hours)
             logging.info(f"Voice join detected: {member.display_name} ({member.id}) rank={rank_name} hours={total_hours:.2f}")
             
             # Diamond+ ranks can have entrance sounds
@@ -797,6 +811,15 @@ class VoiceTrackingFeature(commands.Cog):
                 stats[user_id] += duration
                 
                 self.save_voice_stats(guild_id, stats)
+                
+                # Economy: earn coins for this session
+                total_hours = stats[user_id] / 3600
+                _, _, _, mult = self.get_user_rank(total_hours)
+                coins_earned = (duration / 600) * mult
+                storage = self._get_storage()
+                if storage:
+                    storage.add_coins(guild_id, int(user_id), coins_earned)
+                
                 gc.collect()
     
     async def play_entrance_sound(self, member, voice_channel, rank_name, user_settings):
@@ -1018,7 +1041,7 @@ class VoiceTrackingFeature(commands.Cog):
             rankings = []
             for user_id, total_seconds in stats.items():
                 total_hours = total_seconds / 3600
-                rank_name, role_id, perks = self.get_user_rank(total_hours)
+                rank_name, role_id, perks, _ = self.get_user_rank(total_hours)
                 rankings.append((int(user_id), total_hours, rank_name))
             
             rankings.sort(key=lambda x: x[1], reverse=True)
@@ -1116,6 +1139,12 @@ class VoiceTrackingFeature(commands.Cog):
             state["last_reset_month"] = current_month
             self.save_state(guild_id, state)
             
+            # 8.5. Reset economy purchases for this guild
+            storage = self._get_storage()
+            if storage:
+                storage.clear_purchases(guild_id)
+                logging.info(f"Economy purchases cleared for guild {guild_id}")
+            
             # 9. Update leaderboard immediately
             try:
                 await self.update_leaderboard()
@@ -1144,7 +1173,7 @@ class VoiceTrackingFeature(commands.Cog):
         user="User to add/remove/set from competition (leave empty for add/list)",
         seconds="Seconds to set (required for 'set' action)"
     )
-    async def rank_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member = None, seconds: int = None):
+    async def rank_cmd(self, interaction: discord.Interaction, action: str, user: discord.Member = None, seconds: int = None, coins: int = None):
         """Manage voice time competition list."""
         try:
             await interaction.response.defer(ephemeral=True)
@@ -1296,8 +1325,23 @@ class VoiceTrackingFeature(commands.Cog):
             )
             gc.collect()
         
+        elif action.lower() == "coin":
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.followup.send("❌ Only admins can give coins.", ephemeral=True)
+                return
+            if not user or coins is None or coins <= 0:
+                await interaction.followup.send("❌ Please specify a user and a positive coin amount.", ephemeral=True)
+                return
+            storage = self._get_storage()
+            if storage:
+                new_balance = storage.add_coins(guild_id, user.id, float(coins))
+                await interaction.followup.send(f"✅ Added {coins}🪙 to {user.display_name}. New balance: {new_balance}🪙", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Economy storage not available.", ephemeral=True)
+            gc.collect()
+        
         else:
-            await interaction.followup.send("❌ Invalid action! Use 'add', 'remove', or 'list'.", ephemeral=True)
+            await interaction.followup.send("❌ Invalid action! Use 'add', 'remove', 'list', 'set', or 'coin'.", ephemeral=True)
     
     @app_commands.command(name="say", description="Make Beanie speak in your voice channel (Gold+ rank)")
     @app_commands.describe(message="Text message to speak (max 50 characters)")
@@ -1315,7 +1359,7 @@ class VoiceTrackingFeature(commands.Cog):
         stats = self.load_voice_stats(guild_id)
         total_seconds = stats.get(user_id, 0)
         total_hours = total_seconds / 3600
-        rank_name, role_id, perks = self.get_user_rank(total_hours)
+        rank_name, role_id, perks, _ = self.get_user_rank(total_hours)
         
         # Must be Gold+ rank
         if rank_name not in ["Gold", "Platinum", "Diamond", "Elite", "Immortal", "Legendary"]:
@@ -1330,9 +1374,15 @@ class VoiceTrackingFeature(commands.Cog):
             await interaction.followup.send(f"⏳ Cooldown: chờ {remaining:.1f}s nữa!", ephemeral=True)
             return
         
-        # Validate message length
-        if len(message) > 50:
-            await interaction.followup.send("❌ Message quá dài! Tối đa 50 characters.", ephemeral=True)
+        # Validate message length (base 50 + purchased tokens)
+        max_chars = 50
+        storage = self._get_storage()
+        if storage:
+            month = datetime.now().strftime("%Y-%m")
+            purchased = storage.get_purchase(guild_id, int(user_id), month, "say_tokens")
+            max_chars += int(purchased)
+        if len(message) > max_chars:
+            await interaction.followup.send(f"❌ Message quá dài! Tối đa {max_chars} characters.", ephemeral=True)
             return
         
         # Check if user is in voice channel
@@ -1373,7 +1423,7 @@ class EntryCommandsGroup(commands.GroupCog, name="entry", description="Manage en
         stats = self.voice_feature.load_voice_stats(guild_id)
         total_seconds = stats.get(user_id, 0)
         total_hours = total_seconds / 3600
-        rank_name, role_id, perks = self.voice_feature.get_user_rank(total_hours)
+        rank_name, role_id, perks, _ = self.voice_feature.get_user_rank(total_hours)
         
         if rank_name not in ["Diamond", "Elite", "Immortal", "Legendary"]:
             await interaction.response.send_message(f"❌ Chỉ Diamond rank trở lên mới có entrance sound! (Rank hiện tại: {rank_name})", ephemeral=True)
@@ -1398,7 +1448,7 @@ class EntryCommandsGroup(commands.GroupCog, name="entry", description="Manage en
         stats = self.voice_feature.load_voice_stats(guild_id)
         total_seconds = stats.get(user_id, 0)
         total_hours = total_seconds / 3600
-        rank_name, role_id, perks = self.voice_feature.get_user_rank(total_hours)
+        rank_name, role_id, perks, _ = self.voice_feature.get_user_rank(total_hours)
         
         if rank_name not in ["Diamond", "Elite", "Immortal", "Legendary"]:
             await interaction.response.send_message(f"❌ Chỉ Diamond rank trở lên mới có entrance sound! (Rank hiện tại: {rank_name})", ephemeral=True)
@@ -1423,7 +1473,7 @@ class EntryCommandsGroup(commands.GroupCog, name="entry", description="Manage en
         stats = self.voice_feature.load_voice_stats(guild_id)
         total_seconds = stats.get(user_id, 0)
         total_hours = total_seconds / 3600
-        rank_name, role_id, perks = self.voice_feature.get_user_rank(total_hours)
+        rank_name, role_id, perks, _ = self.voice_feature.get_user_rank(total_hours)
         
         if rank_name not in ["Immortal", "Legendary"]:
             await interaction.response.send_message(f"❌ Chỉ Immortal rank trở lên mới tùy chỉnh entrance sound! (Rank hiện tại: {rank_name})", ephemeral=True)
@@ -1446,15 +1496,21 @@ class EntryCommandsGroup(commands.GroupCog, name="entry", description="Manage en
         stats = self.voice_feature.load_voice_stats(guild_id)
         total_seconds = stats.get(user_id, 0)
         total_hours = total_seconds / 3600
-        rank_name, role_id, perks = self.voice_feature.get_user_rank(total_hours)
+        rank_name, role_id, perks, _ = self.voice_feature.get_user_rank(total_hours)
         
         if rank_name not in ["Immortal", "Legendary"]:
             await interaction.followup.send(f"❌ Chỉ Immortal rank trở lên mới upload custom audio! (Rank hiện tại: {rank_name})", ephemeral=True)
             return
         
-        # Validate file size
-        if file.size > 200 * 1024:  # 200KB
-            await interaction.followup.send(f"❌ File quá lớn! Tối đa 200KB (file của bạn: {file.size // 1024}KB)", ephemeral=True)
+        # Validate file size (base 200KB + purchased storage)
+        max_bytes = 200 * 1024
+        storage = self.voice_feature._get_storage()
+        if storage:
+            month = datetime.now().strftime("%Y-%m")
+            purchased_kb = storage.get_purchase(guild_id, int(user_id), month, "entry_storage")
+            max_bytes += int(purchased_kb) * 1024
+        if file.size > max_bytes:
+            await interaction.followup.send(f"❌ File quá lớn! Tối đa {max_bytes // 1024}KB (file của bạn: {file.size // 1024}KB)", ephemeral=True)
             return
         
         # Validate file extension
@@ -1504,7 +1560,7 @@ class EntryCustomizeView(discord.ui.View):
     @discord.ui.button(label="Upload File", style=discord.ButtonStyle.secondary, emoji="📁")
     async def upload_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "📁 Sử dụng lệnh `/entry upload` kèm file .mp3 (Max 200KB)",
+            "📁 Sử dụng lệnh `/entry upload` kèm file .mp3 (dung lượng tối đa theo cấp độ)",
             ephemeral=True
         )
 

@@ -77,23 +77,26 @@ class TestVoiceTrackingFeature:
         assert '.tmp' in m.call_args[0][0]
     
     def test_get_user_rank_iron(self, voice_feature):
-        """Test rank calculation for Iron (< 10h)."""
-        rank_name, role_id, perks = voice_feature.get_user_rank(5)
+        """Test rank calculation for Iron (< 20h)."""
+        rank_name, role_id, perks, mult = voice_feature.get_user_rank(5)
         assert rank_name == "Iron"
         assert perks == []
+        assert mult == 1.0
     
     def test_get_user_rank_gold(self, voice_feature):
-        """Test rank calculation for Gold (30-40h)."""
-        rank_name, role_id, perks = voice_feature.get_user_rank(35)
+        """Test rank calculation for Gold (60-80h)."""
+        rank_name, role_id, perks, mult = voice_feature.get_user_rank(70)
         assert rank_name == "Gold"
         assert "/say" in perks
+        assert mult == 1.8
     
     def test_get_user_rank_legendary(self, voice_feature):
-        """Test rank calculation for Legendary (80+ h)."""
-        rank_name, role_id, perks = voice_feature.get_user_rank(100)
+        """Test rank calculation for Legendary (160+ h)."""
+        rank_name, role_id, perks, mult = voice_feature.get_user_rank(200)
         assert rank_name == "Legendary"
         assert "/say" in perks
         assert "/entry" in str(perks)
+        assert mult == 4.0
     
     def test_checkpoint_voice_stats_no_active_users(self, voice_feature):
         """Test checkpointing with no users in voice."""
@@ -154,7 +157,7 @@ class TestVoiceTrackingFeature:
         mock_interaction.user.voice = None
         
         # Give user Gold rank (30+ hours)
-        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 108000}):
+        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 252000}):
             await voice_feature.say_cmd.callback(voice_feature, mock_interaction, "test message")
             
             # Should reject because not in voice
@@ -169,7 +172,7 @@ class TestVoiceTrackingFeature:
         
         long_message = "a" * 51
         
-        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 108000}):
+        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 252000}):
             await voice_feature.say_cmd.callback(voice_feature, mock_interaction, long_message)
             
             mock_interaction.followup.send.assert_called_once()
@@ -181,7 +184,7 @@ class TestVoiceTrackingFeature:
         mock_interaction.user.id = 123456
         mock_interaction.user.voice = MagicMock()
         
-        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 108000}):
+        with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 252000}):
             with patch('time.time', return_value=1000):
                 await voice_feature.say_cmd.callback(voice_feature, mock_interaction, "test message")
                 

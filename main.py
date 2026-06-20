@@ -149,6 +149,7 @@ async def load_features():
         from features.channel_track import ChannelTrackingFeature
         from features.birthday import BirthdayFeature
         from features.admin import AdminFeature
+        from features.economy import EconomyFeature
         
         # Initialize and add AI Chat feature
         ai_chat = AIChatFeature(bot, gemini_client, BotConfig)
@@ -184,6 +185,11 @@ async def load_features():
         admin = AdminFeature(bot, BotConfig)
         await bot.add_cog(admin)
         logging.info("Loaded Admin feature")
+        
+        # Initialize and add Economy feature
+        economy = EconomyFeature(bot, BotConfig, voice_tracking)
+        await bot.add_cog(economy)
+        logging.info("Loaded Economy feature")
         
     except Exception as e:
         logging.error(f"Failed to load features: {e}", exc_info=True)
@@ -316,14 +322,14 @@ async def help_command(interaction: discord.Interaction):
     embed4.add_field(
         name="Ranks & Perks",
         value="1. **Iron** - Basic member\n"
-              "2. **Bronze** - 10 hours\n"
-              "3. **Silver** - 20 hours\n"
-              "4. **Gold** - 30 hours + `/say`\n"
-              "5. **Platinum** - 40 hours + `/say`\n"
-              "6. **Diamond** - 50 hours + `/sound`\n"
-              "7. **Elite** - 60 hours + `/sound`\n"
-              "8. **Immortal** - 70 hours + custom sounds\n"
-              "9. **Legendary** - 80 hours + custom sounds\n",
+              "2. **Bronze** - 20 hours\n"
+              "3. **Silver** - 40 hours\n"
+              "4. **Gold** - 60 hours + `/say`\n"
+              "5. **Platinum** - 80 hours + `/say`\n"
+              "6. **Diamond** - 100 hours + `/entry`\n"
+              "7. **Elite** - 120 hours + `/entry`\n"
+              "8. **Immortal** - 140 hours + custom sounds\n"
+              "9. **Legendary** - 160 hours + custom sounds\n",
         inline=False
     )
     

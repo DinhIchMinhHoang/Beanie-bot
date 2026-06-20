@@ -172,6 +172,22 @@ class SQLiteStorage:
                 PRIMARY KEY (guild_id, channel_id, archive_year, archive_month)
             );
 
+            CREATE TABLE IF NOT EXISTS economy_accounts (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                coins REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS economy_purchases (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                month TEXT NOT NULL,
+                purchase_type TEXT NOT NULL,
+                purchase_value REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id, month, purchase_type)
+            );
+
             -- Performance Indexes
             CREATE INDEX IF NOT EXISTS idx_voice_stats_guild_user 
                 ON voice_stats(guild_id, user_id);
@@ -786,6 +802,101 @@ class SQLiteStorage:
             (guild_id, channel_id, guild_id, channel_id),
         )
         return row["total_seconds"] if row and row["total_seconds"] else 0.0
+
+    # --- Economy Methods ---
+
+    def get_balance(self, guild_id: int, user_id: int) -> float:
+        return self._call(self._get_balance(guild_id, user_id))
+
+    async def _get_balance(self, guild_id: int, user_id: int) -> float:
+        row = await self._fetchone(
+            "SELECT coins FROM economy_accounts WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        return row["coins"] if row else 0.0
+
+    def add_coins(self, guild_id: int, user_id: int, amount: float) -> float:
+        return self._call(self._add_coins(guild_id, user_id, amount))
+
+    async def _add_coins(self, guild_id: int, user_id: int, amount: float) -> float:
+        await self._conn.execute(
+            """INSERT INTO economy_accounts (guild_id, user_id, coins) VALUES (?, ?, ?)
+               ON CONFLICT(guild_id, user_id) DO UPDATE SET coins = coins + ?""",
+            (guild_id, user_id, amount, amount),
+        )
+        await self._conn.commit()
+        row = await self._fetchone(
+            "SELECT coins FROM economy_accounts WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        return row["coins"] if row else amount
+
+    def spend_coins(self, guild_id: int, user_id: int, amount: float) -> bool:
+        return self._call(self._spend_coins(guild_id, user_id, amount))
+
+    async def _spend_coins(self, guild_id: int, user_id: int, amount: float) -> bool:
+        balance = await self._get_balance(guild_id, user_id)
+        if balance < amount:
+            return False
+        await self._conn.execute(
+            "UPDATE economy_accounts SET coins = coins - ? WHERE guild_id = ? AND user_id = ?",
+            (amount, guild_id, user_id),
+        )
+        await self._conn.commit()
+        return True
+
+    def add_purchase(self, guild_id: int, user_id: int, month: str, ptype: str, value: float):
+        self._call(self._add_purchase(guild_id, user_id, month, ptype, value))
+
+    async def _add_purchase(self, guild_id: int, user_id: int, month: str, ptype: str, value: float):
+        await self._conn.execute(
+            """INSERT INTO economy_purchases (guild_id, user_id, month, purchase_type, purchase_value)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(guild_id, user_id, month, purchase_type)
+               DO UPDATE SET purchase_value = purchase_value + ?""",
+            (guild_id, user_id, month, ptype, value, value),
+        )
+        await self._conn.commit()
+
+    def get_purchase(self, guild_id: int, user_id: int, month: str, ptype: str) -> float:
+        return self._call(self._get_purchase(guild_id, user_id, month, ptype))
+
+    async def _get_purchase(self, guild_id: int, user_id: int, month: str, ptype: str) -> float:
+        row = await self._fetchone(
+            "SELECT purchase_value FROM economy_purchases WHERE guild_id = ? AND user_id = ? AND month = ? AND purchase_type = ?",
+            (guild_id, user_id, month, ptype),
+        )
+        return row["purchase_value"] if row else 0.0
+
+    def get_all_purchases(self, guild_id: int, user_id: int, month: str) -> dict:
+        return self._call(self._get_all_purchases(guild_id, user_id, month))
+
+    async def _get_all_purchases(self, guild_id: int, user_id: int, month: str) -> dict:
+        rows = await self._fetchall(
+            "SELECT purchase_type, purchase_value FROM economy_purchases WHERE guild_id = ? AND user_id = ? AND month = ?",
+            (guild_id, user_id, month),
+        )
+        return {row["purchase_type"]: row["purchase_value"] for row in rows}
+
+    def clear_purchases(self, guild_id: int):
+        self._call(self._clear_purchases(guild_id))
+
+    async def _clear_purchases(self, guild_id: int):
+        await self._conn.execute(
+            "DELETE FROM economy_purchases WHERE guild_id = ?",
+            (guild_id,),
+        )
+        await self._conn.commit()
+
+    def get_coin_leaderboard(self, guild_id: int, limit: int = 10) -> list:
+        return self._call(self._get_coin_leaderboard(guild_id, limit))
+
+    async def _get_coin_leaderboard(self, guild_id: int, limit: int = 10) -> list:
+        rows = await self._fetchall(
+            "SELECT user_id, coins FROM economy_accounts WHERE guild_id = ? ORDER BY coins DESC LIMIT ?",
+            (guild_id, limit),
+        )
+        return [(int(row["user_id"]), round(row["coins"], 1)) for row in rows]
 
     async def _fetchone(self, sql: str, params=()):
         async with self._conn.execute(sql, params) as cursor:
