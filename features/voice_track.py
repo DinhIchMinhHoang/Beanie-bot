@@ -402,7 +402,7 @@ class VoiceTrackingFeature(commands.Cog):
                 # Member is a competitor -> compute target rank
                 total_seconds = stats.get(user_id, 0)
                 total_hours = total_seconds / 3600
-                rank_name, _, _ = self.get_user_rank(total_hours)
+                rank_name, _, _, _ = self.get_user_rank(total_hours)
                 role_id = self.get_rank_role_id_for_guild(guild_id, rank_name)
                 if role_id is None:
                     logging.warning(
