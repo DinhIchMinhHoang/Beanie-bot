@@ -124,10 +124,11 @@ Triggers workflow
 ┌─────────────────────────────────────┐
 │     Test Suite Execution            │
 ├─────────────────────────────────────┤
-│ Tests:       48 unit tests          │
+│ Tests:       65 unit tests          │
 │ - test_storage.py                   │
 │ - test_voice_track.py               │
 │ - test_birthday.py                  │
+│ - test_channel_track.py             │
 │ - test_guild_config.py              │
 │ - test_config.py                    │
 │ - test_ai_chat.py                   │
@@ -197,26 +198,33 @@ sequenceDiagram
 
 ```
 tests/
-├── test_storage.py          [8 tests] ✅
+├── test_storage.py          [9 tests] ✅
 │   ├── SQLite initialization
 │   ├── Guild config migration
 │   ├── Voice stats CRUD
 │   ├── Archive handling
-│   └── Legacy JSON fallback
+│   ├── Legacy JSON fallback
+│   └── Load voice stats archive
 │
-├── test_voice_track.py      [17 tests] ✅
+├── test_voice_track.py      [21 tests] ✅
 │   ├── Voice state tracking
 │   ├── Rank assignment
 │   ├── /rank command flow
 │   ├── /say command
 │   ├── Entrance sounds
-│   └── Leaderboard updates
+│   ├── Leaderboard updates
+│   ├── Periodic voice checkpoint
+│   └── Leaderboard stale recovery
 │
 ├── test_birthday.py         [12 tests] ✅
 │   ├── Birthday registration
 │   ├── Birthday announcements
 │   ├── Channel management
 │   └── Date validation
+│
+├── test_channel_track.py    [3 tests] ✅
+│   ├── Channel occupancy tracking
+│   └── Deleted channel cleanup
 │
 ├── test_guild_config.py     [6 tests] ✅
 │   ├── Config loading
@@ -227,12 +235,14 @@ tests/
 │   ├── BotConfig initialization
 │   └── Storage access
 │
-└── test_ai_chat.py          [2 tests] ✅
-    └── AI message handling
+└── test_ai_chat.py          [3 tests] ✅
+    ├── AI message handling
+    ├── Rate limiting
+    └── Lockdown recovery
 
-Total: 48 tests
+Total: 65 tests
 Success Rate: 100%
-Avg Runtime: ~45 seconds
+Avg Runtime: ~9 seconds
 ```
 
 ---
@@ -386,14 +396,15 @@ Total Time:            ~135s (2.25 min)
 ```
 Module              Tests  Avg Time  Status
 ──────────────────────────────────────────
-storage             8      4.2ms    ✅
-voice_track         17     6.1ms    ✅
+storage             9      4.2ms    ✅
+voice_track         21     6.1ms    ✅
 birthday            12     3.8ms    ✅
+channel_track       3      2.5ms    ✅
 guild_config        6      2.9ms    ✅
 config              3      1.5ms    ✅
-ai_chat             2      2.1ms    ✅
+ai_chat             3      2.1ms    ✅
 ──────────────────────────────────────────
-Total               48     24.6ms   ✅
+Total               65     24.6ms   ✅
 ```
 
 ---

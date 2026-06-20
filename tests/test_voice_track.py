@@ -21,7 +21,8 @@ class TestVoiceTrackingFeature:
             VoiceTrackingFeature,
             update_leaderboard=MagicMock(start=MagicMock(), cancel=MagicMock()),
             monthly_reset_check=MagicMock(start=MagicMock(), cancel=MagicMock()),
-            periodic_role_sync=MagicMock(start=MagicMock(), cancel=MagicMock())
+            periodic_role_sync=MagicMock(start=MagicMock(), cancel=MagicMock()),
+            voice_checkpoint=MagicMock(start=MagicMock(), cancel=MagicMock())
         ):
             with patch('asyncio.create_task', return_value=AsyncMock()):
                 feature = VoiceTrackingFeature(mock_bot, "ffmpeg", mock_config)
@@ -111,8 +112,10 @@ class TestVoiceTrackingFeature:
         now = time.time()
         
         voice_feature.voice_join_times = {
-            "123456": now - 3600,  # User joined 1 hour ago
-            "789012": now - 1800   # User joined 30 minutes ago
+            TEST_GUILD_ID: {
+                "123456": now - 3600,  # User joined 1 hour ago
+                "789012": now - 1800   # User joined 30 minutes ago
+            }
         }
         
         with patch.object(voice_feature, 'load_voice_stats', return_value={"123456": 7200}):
@@ -215,7 +218,6 @@ class TestVoiceTrackingFeature:
                         assert "123456" in saved_data
     
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_on_voice_state_update_join(self, voice_feature, mock_member):
         """Test tracking when competitor joins voice channel."""
         mock_member.id = 123456
@@ -233,9 +235,10 @@ class TestVoiceTrackingFeature:
                 with patch.object(voice_feature, 'load_voice_stats', return_value={}):
                     await voice_feature.on_voice_state_update(mock_member, before, after)
                     
-                    # Should track join time
-                    assert "123456" in voice_feature.voice_join_times
-                    assert voice_feature.voice_join_times["123456"] == 1000
+                    # Should track join time under the correct guild
+                    assert TEST_GUILD_ID in voice_feature.voice_join_times
+                    assert "123456" in voice_feature.voice_join_times[TEST_GUILD_ID]
+                    assert voice_feature.voice_join_times[TEST_GUILD_ID]["123456"] == 1000
     
     @pytest.mark.asyncio
     async def test_on_voice_state_update_leave(self, voice_feature, mock_member):
@@ -243,8 +246,12 @@ class TestVoiceTrackingFeature:
         mock_member.id = 123456
         mock_member.guild.id = TEST_GUILD_ID
         
-        # User was in voice for 1 hour
-        voice_feature.voice_join_times["123456"] = 1000
+        # User was in voice for 1 hour (guild-scoped)
+        voice_feature.voice_join_times = {
+            TEST_GUILD_ID: {
+                "123456": 1000
+            }
+        }
         
         before = MagicMock()
         before.channel = MagicMock()
@@ -515,4 +522,43 @@ class TestVoiceTrackingFeature:
                                     with patch.object(voice_feature, 'update_leaderboard', new_callable=AsyncMock) as mock_update:
                                         await voice_feature.update_leaderboard()
                                         mock_update.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_voice_checkpoint_task_calls_checkpoint_for_all_guilds(self, voice_feature, mock_bot):
+        """Test periodic voice checkpoint processes all guilds."""
+        mock_guild1 = MagicMock()
+        mock_guild1.id = 111
+        mock_guild2 = MagicMock()
+        mock_guild2.id = 222
+        mock_bot.guilds = [mock_guild1, mock_guild2]
+
+        with patch.object(voice_feature, 'checkpoint_voice_stats') as mock_checkpoint:
+            await voice_feature.voice_checkpoint()
+
+            mock_checkpoint.assert_any_call(111)
+            mock_checkpoint.assert_any_call(222)
+            assert mock_checkpoint.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_leaderboard_stale_timeout_recovers(self, voice_feature, mock_bot, mock_config):
+        """Test leaderboard recovers from stale updating state after timeout."""
+        import time
+        mock_guild = MagicMock()
+        mock_guild.id = TEST_GUILD_ID
+        mock_bot.guilds = [mock_guild]
+
+        # Set stale state (started 15 minutes ago)
+        voice_feature.leaderboard_updating.add(TEST_GUILD_ID)
+        voice_feature.leaderboard_update_times[TEST_GUILD_ID] = time.time() - 900  # 15 min ago
+
+        mock_channel = AsyncMock()
+        mock_channel.edit = AsyncMock()
+        mock_bot.get_channel.return_value = mock_channel
+
+        with patch.object(voice_feature, 'load_competitors', return_value={}):
+            with patch.object(voice_feature, 'checkpoint_voice_stats'):
+                await voice_feature.update_leaderboard()
+
+        # Should have recovered from stale state
+        assert TEST_GUILD_ID not in voice_feature.leaderboard_updating
 

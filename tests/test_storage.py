@@ -121,3 +121,21 @@ class TestSQLiteStorage:
         assert len(history) == 2
         assert history[0].endswith("u2: two")
         assert history[1].endswith("u3: three")
+
+    def test_load_voice_stats_archive_roundtrip(self, tmp_path, monkeypatch):
+        """Test load_voice_stats_archive returns what was stored."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("BEANIE_BASE_DIR", str(tmp_path))
+
+        guild_id = 555666777
+        GuildConfig(guild_id)
+        storage = get_storage(str(tmp_path))
+
+        storage.archive_voice_stats(guild_id, 2026, 3, {"42": 3600.0, "99": 7200.0})
+        archived = storage.load_voice_stats_archive(guild_id, 2026, 3)
+
+        assert archived == {"42": 3600.0, "99": 7200.0}
+
+        # Non-existent archive returns empty dict
+        missing = storage.load_voice_stats_archive(guild_id, 2025, 1)
+        assert missing == {}

@@ -230,7 +230,7 @@ class ChannelTrackingFeature(commands.Cog):
                 logging.info(f"Channel monthly reset for guild {guild_id}, month {current_month}")
                 
                 # 1. Checkpoint first
-                self.checkpoint_channel_stats()
+                await self.checkpoint_channel_stats()
                 
                 # 2. Get tracked channels and archive their stats
                 tracked = storage.load_tracked_channels(guild_id)

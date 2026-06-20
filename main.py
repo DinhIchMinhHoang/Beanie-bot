@@ -413,6 +413,18 @@ async def on_ready():
     except Exception as e:
         print(f"Sync error: {e}")
 
+    # Send startup notification to each guild's general channel
+    for guild in bot.guilds:
+        try:
+            guild_config = BotConfig.get_guild_config(guild.id)
+            general_channel_id = guild_config.get_general_channel_id()
+            if general_channel_id:
+                channel = bot.get_channel(general_channel_id)
+                if channel:
+                    await channel.send("🔄 **Beanie Bot** vừa được cập nhật và khởi động lại! Mọi tính năng đã sẵn sàng. Chúc mọi người chơi vui vẻ! 🎉")
+        except Exception as e:
+            logging.warning(f"Failed to send startup notification for guild {guild.id}: {e}")
+
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):

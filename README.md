@@ -492,19 +492,20 @@ For full schema documentation, see [DATABASE.md](docs/DATABASE.md).
 ## 🔄 CI/CD Pipeline
 
 ### Automated Workflows
-- **On Every Push**: Run tests (48 unit tests)
+- **On Every Push**: Run tests (65 unit tests)
 - **On Every Push**: Lint code (Pylint, Black)
 - **On Main Branch**: Deploy to production if tests pass
 
 ### Test Coverage
 ```
-✅ 48 Total Tests
-   - storage.py           8 tests
-   - voice_track.py      17 tests
+✅ 65 Total Tests
+   - storage.py           9 tests
+   - voice_track.py      21 tests
    - birthday.py         12 tests
    - guild_config.py      6 tests
    - config.py            3 tests
-   - ai_chat.py           2 tests
+   - ai_chat.py           3 tests
+   - channel_track.py     3 tests
 ```
 
 ### Manual Deployment
@@ -556,7 +557,7 @@ Expected output:
 tests/test_storage.py::TestSQLiteStorage::test_ensure_guild_initialized PASSED
 tests/test_voice_track.py::TestVoiceTrackingFeature::test_rank_cmd_add_self PASSED
 ...
-48 passed in 0.45s
+65 passed in 9.37s
 ```
 
 #### 5. Check Code Quality
@@ -750,7 +751,7 @@ Contributions are welcome! Please follow these steps:
 
 ### Testing Requirements
 All code must:
-- Pass all 48 existing tests
+- Pass all 65 existing tests
 - Have test coverage for new features
 - Pass linting checks
 - Have no syntax errors
@@ -766,7 +767,7 @@ All code must:
 - [x] AI chat (Gemini & OpenAI)
 - [x] SQLite migration from JSON
 - [x] Multi-guild support
-- [x] Comprehensive test suite (48 tests)
+- [x] Comprehensive test suite (65 tests)
 - [x] CI/CD pipeline
 - [x] `/help` command
 - [x] Full documentation

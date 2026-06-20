@@ -628,6 +628,16 @@ class SQLiteStorage:
             rows = list(reversed(rows))
         return [f"[{row['created_at']}] {row['speaker']}: {row['content']}" for row in rows]
 
+    def load_voice_stats_archive(self, guild_id: int, archive_year: int, archive_month: int) -> dict:
+        return self._call(self._load_voice_stats_archive(guild_id, archive_year, archive_month))
+
+    async def _load_voice_stats_archive(self, guild_id: int, archive_year: int, archive_month: int) -> dict:
+        rows = await self._fetchall(
+            "SELECT user_id, total_seconds FROM voice_stats_archive WHERE guild_id = ? AND archive_year = ? AND archive_month = ?",
+            (guild_id, archive_year, archive_month),
+        )
+        return {row["user_id"]: row["total_seconds"] for row in rows}
+
     def archive_voice_stats(self, guild_id: int, archive_year: int, archive_month: int, data: dict):
         self._call(self._archive_voice_stats(guild_id, archive_year, archive_month, data))
 

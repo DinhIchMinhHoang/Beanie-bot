@@ -28,8 +28,9 @@ class VoiceTrackingFeature(commands.Cog):
         self.config = config
         
         # Voice tracking state
-        self.voice_join_times = {}  # {user_id: start_timestamp} - only in RAM
+        self.voice_join_times = {}  # {guild_id: {user_id: start_timestamp}} - only in RAM
         self.leaderboard_updating = set()  # {guild_id} - track which guilds are currently updating leaderboards
+        self.leaderboard_update_times = {}  # {guild_id: start_time} - for timeout detection
         
         # Audio infrastructure
         self.audio_lock = asyncio.Lock()
@@ -40,6 +41,7 @@ class VoiceTrackingFeature(commands.Cog):
         self.update_leaderboard.start()
         self.monthly_reset_check.start()
         self.periodic_role_sync.start()
+        self.voice_checkpoint.start()
         
         # Start say queue processor
         asyncio.create_task(self.process_say_queue())
@@ -346,16 +348,17 @@ class VoiceTrackingFeature(commands.Cog):
     def checkpoint_voice_stats(self, guild_id: int):
         """Checkpoint voice stats for users currently in voice channels for a specific guild."""
         now = time.time()
-        if not self.voice_join_times:
+        guild_times = self.voice_join_times.get(guild_id)
+        if not guild_times:
             return
         
         stats = self.load_voice_stats(guild_id)
-        for user_id, join_time in list(self.voice_join_times.items()):
+        for user_id, join_time in list(guild_times.items()):
             duration = now - join_time
             if user_id not in stats:
                 stats[user_id] = 0
             stats[user_id] += duration
-            self.voice_join_times[user_id] = now  # Reset to current time
+            guild_times[user_id] = now  # Reset to current time
         
         self.save_voice_stats(guild_id, stats)
         gc.collect()
@@ -461,10 +464,16 @@ class VoiceTrackingFeature(commands.Cog):
                 
                 # Skip if already updating this guild's leaderboard (prevents concurrent updates)
                 if guild_id in self.leaderboard_updating:
-                    logging.info(f"Leaderboard update already in progress for guild {guild_id}, skipping...")
-                    continue
+                    start_time = self.leaderboard_update_times.get(guild_id, 0)
+                    if time.time() - start_time < 600:  # 10 minute timeout
+                        logging.info(f"Leaderboard update already in progress for guild {guild_id}, skipping...")
+                        continue
+                    else:
+                        logging.warning(f"Leaderboard update for guild {guild_id} stale (>10min), resetting...")
+                        self.leaderboard_updating.discard(guild_id)
                 
                 self.leaderboard_updating.add(guild_id)
+                self.leaderboard_update_times[guild_id] = time.time()
                 logging.info(f"Starting leaderboard update for guild {guild_id}")
                 
                 # Validate and clean voice stats (remove non-competitors to prevent contamination)
@@ -558,6 +567,7 @@ class VoiceTrackingFeature(commands.Cog):
             finally:
                 # Always remove guild from updating set when done (success or error)
                 self.leaderboard_updating.discard(guild_id)
+                self.leaderboard_update_times.pop(guild_id, None)
             
             # Add delay between guild updates to avoid global rate limits
             # Only if there are more guilds to process
@@ -566,6 +576,16 @@ class VoiceTrackingFeature(commands.Cog):
         
         gc.collect()
     
+    @tasks.loop(minutes=5)
+    async def voice_checkpoint(self):
+        """Periodically checkpoint in-progress voice stats to prevent data loss on crash."""
+        await self.bot.wait_until_ready()
+        try:
+            for guild in self.bot.guilds:
+                self.checkpoint_voice_stats(guild.id)
+        except Exception as e:
+            logging.error(f"Periodic voice checkpoint error: {e}")
+
     @tasks.loop(minutes=5)
     async def monthly_reset_check(self):
         """Check if we need to reset voice stats at the start of a new month for all guilds."""
@@ -737,7 +757,7 @@ class VoiceTrackingFeature(commands.Cog):
         
         # Joined voice channel
         if before.channel is None and after.channel is not None:
-            self.voice_join_times[user_id] = now
+            self.voice_join_times.setdefault(guild_id, {})[user_id] = now
             
             # Check rank for entrance sound (Diamond+)
             stats = self.load_voice_stats(guild_id)
@@ -764,8 +784,9 @@ class VoiceTrackingFeature(commands.Cog):
         
         # Left voice channel
         elif before.channel is not None and after.channel is None:
-            if user_id in self.voice_join_times:
-                start_time = self.voice_join_times.pop(user_id)
+            guild_times = self.voice_join_times.get(guild_id, {})
+            if user_id in guild_times:
+                start_time = guild_times.pop(user_id)
                 duration = now - start_time
                 
                 # Immediately save to JSON (persistence!)
@@ -1329,10 +1350,10 @@ class VoiceTrackingFeature(commands.Cog):
     
     def cog_unload(self):
         """Called when cog is unloaded."""
-        self.birthday_check.cancel()
         self.update_leaderboard.cancel()
         self.monthly_reset_check.cancel()
         self.periodic_role_sync.cancel()
+        self.voice_checkpoint.cancel()
 
 
 # Entry command group setup
