@@ -98,6 +98,9 @@ class GuildConfig:
         normalized["birthday_channel_ids"] = birthday_ids
         normalized["birthday_channel_id"] = birthday_ids[0] if birthday_ids else None
 
+        if "patch_notes_channel_id" not in normalized:
+            normalized["patch_notes_channel_id"] = None
+
         if "features" not in normalized or not isinstance(normalized["features"], dict):
             normalized["features"] = self._default_config()["features"]
 

@@ -444,6 +444,7 @@ class SQLiteStorage:
             "birthday_channel_ids": birthday_channel_ids,
             "rank_category_id": row["rank_category_id"],
             "general_channel_id": row["general_channel_id"],
+            "patch_notes_channel_id": row["patch_notes_channel_id"],
             "auto_shutdown_channel_id": row["auto_shutdown_channel_id"],
             "rank_role_ids": json.loads(row["rank_role_ids_json"]),
             "features": json.loads(row["features_json"]),
@@ -463,14 +464,16 @@ class SQLiteStorage:
                 birthday_channel_id,
                 rank_category_id,
                 general_channel_id,
+                patch_notes_channel_id,
                 auto_shutdown_channel_id,
                 rank_role_ids_json,
                 features_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 birthday_channel_id = excluded.birthday_channel_id,
                 rank_category_id = excluded.rank_category_id,
                 general_channel_id = excluded.general_channel_id,
+                patch_notes_channel_id = excluded.patch_notes_channel_id,
                 auto_shutdown_channel_id = excluded.auto_shutdown_channel_id,
                 rank_role_ids_json = excluded.rank_role_ids_json,
                 features_json = excluded.features_json
@@ -480,6 +483,7 @@ class SQLiteStorage:
                 primary_birthday_channel_id,
                 config.get("rank_category_id"),
                 config.get("general_channel_id"),
+                config.get("patch_notes_channel_id"),
                 config.get("auto_shutdown_channel_id"),
                 json.dumps(config.get("rank_role_ids", []), ensure_ascii=False),
                 json.dumps(config.get("features", {}), ensure_ascii=False),
