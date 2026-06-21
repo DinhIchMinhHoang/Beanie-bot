@@ -72,6 +72,7 @@ class SQLiteStorage:
         await self._conn.execute("PRAGMA wal_autocheckpoint=100")
         await self._conn.execute("PRAGMA busy_timeout=5000")
         await self._create_schema()
+        await self._run_migrations()
         await self._conn.commit()
         logging.info("SQLite storage ready at %s", self.db_path)
 
@@ -186,6 +187,18 @@ class SQLiteStorage:
                 purchase_type TEXT NOT NULL,
                 purchase_value REAL NOT NULL,
                 PRIMARY KEY (guild_id, user_id, month, purchase_type)
+            );
+
+            CREATE TABLE IF NOT EXISTS economy_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'all',
+                value REAL NOT NULL,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                reason TEXT DEFAULT '',
+                active INTEGER DEFAULT 1
             );
 
             -- Performance Indexes
@@ -606,6 +619,26 @@ class SQLiteStorage:
             )
         await self._conn.commit()
 
+    def get_guild_state(self, guild_id: int, key: str):
+        return self._call(self._get_guild_state(guild_id, key))
+
+    async def _get_guild_state(self, guild_id: int, key: str):
+        row = await self._fetchone(
+            "SELECT value_json FROM guild_state WHERE guild_id = ? AND state_key = ?",
+            (guild_id, key),
+        )
+        return json.loads(row["value_json"]) if row else None
+
+    def set_guild_state(self, guild_id: int, key: str, value):
+        self._call(self._set_guild_state(guild_id, key, value))
+
+    async def _set_guild_state(self, guild_id: int, key: str, value):
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO guild_state (guild_id, state_key, value_json) VALUES (?, ?, ?)",
+            (guild_id, key, json.dumps(value, ensure_ascii=False)),
+        )
+        await self._conn.commit()
+
     def append_chat_history(self, guild_id: int, speaker: str, content: str, limit: int):
         self._call(self._append_chat_history(guild_id, speaker, content, limit))
 
@@ -897,6 +930,74 @@ class SQLiteStorage:
             (guild_id, limit),
         )
         return [(int(row["user_id"]), round(row["coins"], 1)) for row in rows]
+
+    async def _run_migrations(self):
+        """Apply schema migrations for tables that may already exist."""
+        try:
+            await self._conn.execute("ALTER TABLE guild_config ADD COLUMN patch_notes_channel_id INTEGER")
+        except Exception:
+            pass
+
+    # ── Event CRUD ──────────────────────────────────────────────────────
+
+    def add_event(self, guild_id: int, event_type: str, scope: str, value: float,
+                  starts_at: str, ends_at: str, reason: str = "") -> int:
+        return self._call(self._add_event(guild_id, event_type, scope, value, starts_at, ends_at, reason))
+
+    async def _add_event(self, guild_id: int, event_type: str, scope: str, value: float,
+                         starts_at: str, ends_at: str, reason: str = "") -> int:
+        cursor = await self._conn.execute(
+            """INSERT INTO economy_events (guild_id, event_type, scope, value, starts_at, ends_at, reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (guild_id, event_type, scope, value, starts_at, ends_at, reason),
+        )
+        await self._conn.commit()
+        return cursor.lastrowid
+
+    def get_active_custom_events(self, guild_id: int, now_iso: str) -> list:
+        return self._call(self._get_active_custom_events(guild_id, now_iso))
+
+    async def _get_active_custom_events(self, guild_id: int, now_iso: str) -> list:
+        rows = await self._fetchall(
+            """SELECT id, guild_id, event_type, scope, value, starts_at, ends_at, reason
+               FROM economy_events
+               WHERE guild_id IN (0, ?) AND active = 1 AND starts_at <= ? AND ends_at >= ?""",
+            (guild_id, now_iso, now_iso),
+        )
+        return [dict(row) for row in rows]
+
+    def deactivate_event(self, event_id: int):
+        self._call(self._deactivate_event(event_id))
+
+    async def _deactivate_event(self, event_id: int):
+        await self._conn.execute(
+            "UPDATE economy_events SET active = 0 WHERE id = ?",
+            (event_id,),
+        )
+        await self._conn.commit()
+
+    def deactivate_guild_events(self, guild_id: int):
+        self._call(self._deactivate_guild_events(guild_id))
+
+    async def _deactivate_guild_events(self, guild_id: int):
+        await self._conn.execute(
+            "UPDATE economy_events SET active = 0 WHERE guild_id = ? AND active = 1",
+            (guild_id,),
+        )
+        await self._conn.commit()
+
+    def get_all_events_for_guild(self, guild_id: int) -> list:
+        return self._call(self._get_all_events_for_guild(guild_id))
+
+    async def _get_all_events_for_guild(self, guild_id: int) -> list:
+        rows = await self._fetchall(
+            """SELECT id, guild_id, event_type, scope, value, starts_at, ends_at, reason, active
+               FROM economy_events
+               WHERE guild_id IN (0, ?)
+               ORDER BY starts_at DESC""",
+            (guild_id,),
+        )
+        return [dict(row) for row in rows]
 
     async def _fetchone(self, sql: str, params=()):
         async with self._conn.execute(sql, params) as cursor:

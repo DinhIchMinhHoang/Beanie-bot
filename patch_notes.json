@@ -1,0 +1,23 @@
+{
+  "version": "v1.1.0",
+  "title": "\uD83D\uDCE1 Beanie Bot C\u1EADp Nh\u1EADt",
+  "color": "gold",
+  "fields": [
+    {
+      "name": "\u2728 T\u00EDnh N\u0103ng M\u1EDBi",
+      "value": "- H\u1EC7 th\u1ED1ng **s\u1EF1 ki\u1EC7n** \u2013 Gi\u1EA3m gi\u00E1 shop + x2 Coin v\u00E0o c\u00E1c ng\u00E0y \u0111\u1EB7c bi\u1EC7t\n- **K\u00EAnh th\u00F4ng b\u00E1o** `\uD83D\uDC1B\u00B7beanie_patch_update` \u2013 Chi ti\u1EBFt b\u1EA3n c\u1EADp nh\u1EADt\n- **Hall of Fame** \u2013 Hi\u1EC3n th\u1ECB t\u1EA5t c\u1EA3 ng\u01B0\u1EDDi ch\u01A1i, top 3 \u0111\u01B0\u1EE3c t\u00F4 s\u00E1ng",
+      "inline": false
+    },
+    {
+      "name": "\uD83D\uDD27 S\u1EEDa L\u1ED7i",
+      "value": "- S\u1EEDa l\u1ED7i role sync kh\u00F4ng ho\u1EA1t \u0111\u1ED9ng (unpack 4-tuple)\n- C\u00E2n b\u1EB1ng gi\u00E1 c\u1EEDa h\u00E0ng",
+      "inline": false
+    },
+    {
+      "name": "\uD83D\uDEE0\uFE0F K\u1EF9 Thu\u1EADt",
+      "value": "- C\u01A1 s\u1EDF d\u1EEF li\u1EC7u: th\u00EAm b\u1EA3ng `economy_events`, c\u1ED9t `patch_notes_channel_id`\n- T\u00E1ch bi\u1EC7t lu\u1ED3ng th\u00F4ng b\u00E1o s\u1EF1 ki\u1EC7n v\u00E0 shop UI",
+      "inline": false
+    }
+  ],
+  "footer": "Beanie Bot \u2022 C\u1EADp nh\u1EADt t\u1EF1 \u0111\u1ED9ng"
+}

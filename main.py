@@ -4,6 +4,7 @@ A Discord bot with AI chat, voice tracking, and Minecraft server management feat
 """
 
 import os
+import json
 import subprocess
 import shutil
 import logging
@@ -427,6 +428,65 @@ async def on_ready():
                 await channel.send("🔄 **Beanie Bot** vừa được cập nhật và khởi động lại! Mọi tính năng đã sẵn sàng. Chúc mọi người chơi vui vẻ! 🎉")
         except Exception as e:
             logging.warning(f"Failed to send startup notification for guild {guild.id}: {e}")
+
+    # Send patch notes to dedicated patch_notes_channel
+    patch_notes_path = os.path.join(BASE_DIR, "patch_notes.json")
+    if os.path.isfile(patch_notes_path):
+        try:
+            with open(patch_notes_path, "r", encoding="utf-8") as f:
+                patch_data = json.load(f)
+        except Exception as e:
+            logging.warning(f"Failed to read patch_notes.json: {e}")
+            patch_data = None
+
+        if patch_data and isinstance(patch_data, dict):
+            version = patch_data.get("version", "")
+            title = patch_data.get("title", "Beanie Bot Update")
+            color_str = patch_data.get("color", "blue")
+            fields = patch_data.get("fields", [])
+            footer_text = patch_data.get("footer", "")
+
+            color_map = {
+                "blue": discord.Color.blue(),
+                "gold": discord.Color.gold(),
+                "red": discord.Color.red(),
+                "green": discord.Color.green(),
+                "purple": discord.Color.purple(),
+                "orange": discord.Color.orange(),
+            }
+            embed_color = color_map.get(color_str, discord.Color.blue())
+            if isinstance(color_str, int):
+                embed_color = discord.Color(color_str)
+
+            storage = BotConfig.get_storage()
+            for guild in bot.guilds:
+                try:
+                    guild_config = BotConfig.get_guild_config(guild.id)
+                    patch_channel_id = guild_config.get_patch_notes_channel_id()
+                    if not patch_channel_id:
+                        continue
+                    patch_channel = guild.get_channel(patch_channel_id)
+                    if not patch_channel:
+                        continue
+
+                    last_version = storage.get_guild_state(guild.id, "last_patch_version")
+                    if last_version == version:
+                        continue
+
+                    embed = discord.Embed(title=title, color=embed_color)
+                    for field in fields:
+                        embed.add_field(
+                            name=field.get("name", ""),
+                            value=field.get("value", ""),
+                            inline=field.get("inline", False),
+                        )
+                    if footer_text:
+                        embed.set_footer(text=footer_text)
+
+                    await patch_channel.send(embed=embed)
+                    storage.set_guild_state(guild.id, "last_patch_version", version)
+                except Exception as e:
+                    logging.warning(f"Failed to send patch notes for guild {guild.id}: {e}")
 
 
 @bot.event

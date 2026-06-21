@@ -19,6 +19,8 @@ from gtts import gTTS
 # Import permission utilities
 from core.permissions import admin_only
 
+from features.economy import get_coin_multiplier
+
 
 class VoiceTrackingFeature(commands.Cog):
     def __init__(self, bot, ffmpeg_exec, config):
@@ -366,6 +368,8 @@ class VoiceTrackingFeature(commands.Cog):
             coins_earned = (duration / 600) * mult  # 1 base coin per 10 min
             storage = self._get_storage()
             if storage:
+                event_mult = get_coin_multiplier(storage, guild_id)
+                coins_earned *= event_mult
                 storage.add_coins(guild_id, int(user_id), coins_earned)
         
         self.save_voice_stats(guild_id, stats)
@@ -654,44 +658,55 @@ class VoiceTrackingFeature(commands.Cog):
                         )
                         
                         medals = ["🥇", "🥈", "🥉"]
-                        top_3 = rankings[:3]
                         
-                        for i, (user_id, hours, rank_name) in enumerate(top_3):
+                        for i, (user_id, hours, rank_name) in enumerate(rankings):
                             try:
-                                # Use guild member for guild-specific display name
                                 guild_member = guild.get_member(int(user_id))
                                 name = guild_member.display_name if guild_member else f"<@{user_id}>"
-                            except (discord.NotFound, discord.HTTPException):
-                                logging.debug(f"User {user_id} not found for hall of fame")
-                                name = f"<@{user_id}>"
-                            except Exception as e:
-                                logging.error(f"Error fetching user {user_id}: {e}")
+                            except Exception:
                                 name = f"<@{user_id}>"
                             
-                            medal = medals[i]
-                            embed.add_field(
-                                name=f"{medal} {name}",
-                                value=f"**{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
-                                inline=False
-                            )
+                            if i < 3:
+                                medal = medals[i]
+                                embed.add_field(
+                                    name=f"{medal} {name}",
+                                    value=f"**{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
+                                    inline=False
+                                )
                         
-                        # List Immortal/Legendary users
-                        elite_users = [r for r in rankings if r[2] in ["Immortal", "Legendary"]]
-                        if elite_users:
-                            elite_lines = []
-                            for uid, hrs, rank in elite_users:
+                        # Everyone else (#4+) in a single condensed code block
+                        remaining = rankings[3:]
+                        if remaining:
+                            all_lines = []
+                            for i, (uid, hours, rank_name) in enumerate(remaining, start=4):
                                 try:
-                                    guild_member = guild.get_member(uid)
-                                    display = guild_member.display_name if guild_member else f'<@{uid}>'
+                                    guild_member = guild.get_member(int(uid))
+                                    display = guild_member.display_name if guild_member else f"<@{uid}>"
                                 except Exception:
-                                    display = f'<@{uid}>'
-                                elite_lines.append(f"⭐ {display}: **{rank}**")
-                            elite_text = "\n".join(elite_lines)
-                            embed.add_field(
-                                name="💎 Immortal & Legendary Warriors",
-                                value=elite_text[:1024],
-                                inline=False
-                            )
+                                    display = f"<@{uid}>"
+                                line = f"#{i} {display}: {int(hours)}h {int((hours % 1) * 60)}m ({rank_name})"
+                                all_lines.append(line)
+                            
+                            chunk = []
+                            char_count = 0
+                            for line in all_lines:
+                                if char_count + len(line) + 1 > 1900:
+                                    embed.add_field(
+                                        name="📋 Full Rankings",
+                                        value=f"```{chr(10).join(chunk)}```",
+                                        inline=False,
+                                    )
+                                    chunk = [line]
+                                    char_count = len(line) + 1
+                                else:
+                                    chunk.append(line)
+                                    char_count += len(line) + 1
+                            if chunk:
+                                embed.add_field(
+                                    name="📋 Full Rankings",
+                                    value=f"```{chr(10).join(chunk)}```",
+                                    inline=False,
+                                )
                         
                         embed.set_footer(text=f"Stats reset vào {now.strftime('%d/%m/%Y %H:%M')} (Giờ Việt Nam)")
                         
@@ -818,6 +833,8 @@ class VoiceTrackingFeature(commands.Cog):
                 coins_earned = (duration / 600) * mult
                 storage = self._get_storage()
                 if storage:
+                    event_mult = get_coin_multiplier(storage, guild_id)
+                    coins_earned *= event_mult
                     storage.add_coins(guild_id, int(user_id), coins_earned)
                 
                 gc.collect()
@@ -1059,44 +1076,55 @@ class VoiceTrackingFeature(commands.Cog):
                     )
                     
                     medals = ["🥇", "🥈", "🥉"]
-                    top_3 = rankings[:3]
                     
-                    for i, (user_id, hours, rank_name) in enumerate(top_3):
+                    for i, (user_id, hours, rank_name) in enumerate(rankings):
                         try:
-                            # Use guild member for guild-specific display name
                             guild_member = guild.get_member(int(user_id))
                             name = guild_member.display_name if guild_member else f"<@{user_id}>"
-                        except (discord.NotFound, discord.HTTPException):
-                            logging.debug(f"User {user_id} not found for hall of fame")
-                            name = f"<@{user_id}>"
-                        except Exception as e:
-                            logging.error(f"Error fetching user {user_id}: {e}")
+                        except Exception:
                             name = f"<@{user_id}>"
                         
-                        medal = medals[i]
-                        embed.add_field(
-                            name=f"{medal} {name}",
-                            value=f"**{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
-                            inline=False
-                        )
+                        if i < 3:
+                            medal = medals[i]
+                            embed.add_field(
+                                name=f"{medal} {name}",
+                                value=f"**{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
+                                inline=False
+                            )
                     
-                    # List Immortal/Legendary users
-                    elite_users = [r for r in rankings if r[2] in ["Immortal", "Legendary"]]
-                    if elite_users:
-                        elite_lines = []
-                        for uid, hrs, rank in elite_users:
+                    # Everyone else (#4+) in a single condensed code block
+                    remaining = rankings[3:]
+                    if remaining:
+                        all_lines = []
+                        for i, (uid, hours, rank_name) in enumerate(remaining, start=4):
                             try:
-                                guild_member = guild.get_member(uid)
-                                display = guild_member.display_name if guild_member else f'<@{uid}>'
+                                guild_member = guild.get_member(int(uid))
+                                display = guild_member.display_name if guild_member else f"<@{uid}>"
                             except Exception:
-                                display = f'<@{uid}>'
-                            elite_lines.append(f"⭐ {display}: **{rank}**")
-                        elite_text = "\n".join(elite_lines)
-                        embed.add_field(
-                            name="💎 Immortal & Legendary Warriors",
-                            value=elite_text[:1024],
-                            inline=False
-                        )
+                                display = f"<@{uid}>"
+                            line = f"#{i} {display}: {int(hours)}h {int((hours % 1) * 60)}m ({rank_name})"
+                            all_lines.append(line)
+                        
+                        chunk = []
+                        char_count = 0
+                        for line in all_lines:
+                            if char_count + len(line) + 1 > 1900:
+                                embed.add_field(
+                                    name="📋 Full Rankings",
+                                    value=f"```{chr(10).join(chunk)}```",
+                                    inline=False,
+                                )
+                                chunk = [line]
+                                char_count = len(line) + 1
+                            else:
+                                chunk.append(line)
+                                char_count += len(line) + 1
+                        if chunk:
+                            embed.add_field(
+                                name="📋 Full Rankings",
+                                value=f"```{chr(10).join(chunk)}```",
+                                inline=False,
+                            )
                     
                     embed.set_footer(text=f"⚠️ MANUAL RESET by {interaction.user.display_name} at {now.strftime('%d/%m/%Y %H:%M')} (Giờ Việt Nam)")
                     

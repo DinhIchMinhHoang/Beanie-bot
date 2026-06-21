@@ -70,6 +70,7 @@ class GuildConfig:
             "birthday_channel_ids": [],
             "rank_category_id": None,
             "general_channel_id": None,
+            "patch_notes_channel_id": None,
             "auto_shutdown_channel_id": None,
             "rank_role_ids": [],
             "features": {
@@ -229,6 +230,15 @@ class GuildConfig:
         self._config["general_channel_id"] = channel_id
         self._save_guild_config(self._config)
     
+    def get_patch_notes_channel_id(self) -> int:
+        """Get patch notes channel ID."""
+        return self._config.get("patch_notes_channel_id")
+    
+    def set_patch_notes_channel_id(self, channel_id: int):
+        """Set patch notes channel ID."""
+        self._config["patch_notes_channel_id"] = channel_id
+        self._save_guild_config(self._config)
+    
     def get_rank_role_ids(self) -> list:
         """Get list of rank role IDs."""
         return self._config.get("rank_role_ids", [])
@@ -266,6 +276,7 @@ class GuildConfigManager:
     DEFAULT_BIRTHDAY_CHANNEL_NAME = "birthday-wishes"
     DEFAULT_RANK_CATEGORY_NAME = "⎯ 📊 Voice Chat Ranking ⎯"
     DEFAULT_GENERAL_CHANNEL_NAME = "🏆・hall_of_fame"
+    DEFAULT_PATCH_NOTES_CHANNEL_NAME = "🫛・beanie_patch_update"
     DEFAULT_RANK_ROLES = [
         ("🦴・Iron", 0x95A5A6),
         ("⚒️・Bronze", 0xC27C0E),
@@ -381,3 +392,22 @@ class GuildConfigManager:
 
             if role_ids:
                 guild_config.set_rank_role_ids(role_ids)
+
+        # 5) Patch notes channel
+        patch_notes_channel = None
+        patch_notes_channel_id = guild_config.get_patch_notes_channel_id()
+        if patch_notes_channel_id:
+            channel = guild.get_channel(patch_notes_channel_id)
+            if isinstance(channel, discord.TextChannel):
+                patch_notes_channel = channel
+
+        if patch_notes_channel is None:
+            try:
+                patch_notes_channel = await guild.create_text_channel(
+                    self.DEFAULT_PATCH_NOTES_CHANNEL_NAME,
+                    reason="Auto-setup: patch update notification channel",
+                )
+                guild_config.set_patch_notes_channel_id(patch_notes_channel.id)
+                logging.info(f"Created patch notes channel for guild {guild.id}: {patch_notes_channel.id}")
+            except Exception as e:
+                logging.warning(f"Failed to create patch notes channel for guild {guild.id}: {e}")
