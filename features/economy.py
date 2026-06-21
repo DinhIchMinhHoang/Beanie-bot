@@ -99,7 +99,7 @@ def _is_lunar_new_year(d: date) -> bool:
 
 def get_matching_builtin_events(now: datetime | None = None) -> list[dict]:
     if now is None:
-        now = datetime.now(timezone.UTC)
+        now = datetime.now(timezone.utc)
     d = now.date()
     results = []
     for ev in BUILTIN_EVENTS:
@@ -117,7 +117,7 @@ def get_matching_builtin_events(now: datetime | None = None) -> list[dict]:
 
 def get_active_events(storage, guild_id: int, now: datetime | None = None) -> list[dict]:
     if now is None:
-        now = datetime.now(timezone.UTC)
+        now = datetime.now(timezone.utc)
     builtin = get_matching_builtin_events(now)
     custom = storage.get_active_custom_events(guild_id, now.isoformat()) if storage else []
     for ev in custom:
@@ -600,7 +600,7 @@ class EconomyFeature(commands.Cog):
     @tasks.loop(minutes=5)
     async def event_notifier(self):
         await self.bot.wait_until_ready()
-        now = datetime.now(timezone.UTC)
+        now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
         for guild in self.bot.guilds:
             try:
@@ -703,10 +703,10 @@ class EconomyFeature(commands.Cog):
             await interaction.followup.send("\u274c Economy system unavailable")
             return
 
-        now = datetime.now(timezone.UTC)
+        now = datetime.now(timezone.utc)
         starts_at = now.isoformat()
         ends_at = now.replace(hour=23, minute=59, second=59).isoformat() if duration_hours >= 24 else \
-            datetime.fromtimestamp(now.timestamp() + duration_hours * 3600, tz=timezone.UTC).isoformat()
+            datetime.fromtimestamp(now.timestamp() + duration_hours * 3600, tz=timezone.utc).isoformat()
 
         scope = "all"
         event_id = storage.add_event(interaction.guild.id, event_type, scope, value, starts_at, ends_at, reason)
