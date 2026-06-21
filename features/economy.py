@@ -4,6 +4,7 @@ Handles coins, shop, gifting, leaderboard, events, and notifications
 """
 
 import asyncio
+import calendar
 import logging
 import gc
 import time
@@ -142,6 +143,49 @@ def compute_item_discounts(storage, guild_id: int) -> dict[str, float]:
     if best <= 0:
         return {}
     return {key: best for key in SHOP_ITEMS}
+
+# ── Event Schedule (full-year calendar view) ─────────────────────────────
+
+def _get_black_friday_date(year: int) -> date:
+    cal = calendar.monthcalendar(year, 11)
+    fridays = [week[calendar.FRIDAY] for week in cal if week[calendar.FRIDAY] != 0]
+    if len(fridays) >= 4:
+        return date(year, 11, fridays[3])
+    return date(year, 11, fridays[-1])
+
+def _event_schedule_entries(year: int) -> list[dict]:
+    today = date.today()
+    entries = []
+    for m in range(1, 13):
+        entries.append({
+            "label": "Ngày Đặc Biệt Tháng",
+            "date": date(year, m, m),
+            "discount": 0.4, "mult": 2.0,
+            "id": f"monthly_{m}",
+        })
+    lunar = _LUNAR_NEW_YEAR.get(year)
+    if lunar:
+        entries.append({
+            "label": "Tết Nguyên Đán",
+            "date": date(year, lunar[0], lunar[1]),
+            "discount": 0.4, "mult": 2.0,
+            "id": "lunar_new_year",
+        })
+    entries.append({"label": "Quốc Tế Lao Động 1/5", "date": date(year, 5, 1), "discount": 0.2, "mult": 2.0, "id": "labor_day"})
+    entries.append({"label": "Quốc Khánh 2/9", "date": date(year, 9, 2), "discount": 0.2, "mult": 2.0, "id": "independence_day"})
+    entries.append({"label": "Halloween 31/10", "date": date(year, 10, 31), "discount": 0.2, "mult": 2.0, "id": "halloween"})
+    entries.append({"label": "Black Friday", "date": _get_black_friday_date(year), "discount": 0.6, "mult": 2.0, "id": "black_friday"})
+    entries.append({"label": "Giáng Sinh 25/12", "date": date(year, 12, 25), "discount": 0.5, "mult": 2.0, "id": "christmas"})
+    entries.sort(key=lambda e: (e["date"].month, e["date"].day))
+    for e in entries:
+        d = e["date"]
+        if d < today:
+            e["status"] = "past"
+        elif d == today:
+            e["status"] = "active"
+        else:
+            e["status"] = "upcoming"
+    return entries
 
 CATEGORY_META = {
     "hours": {"label": "Hours", "emoji": "\U0001f3ab", "description": "Buy voice hours to boost your rank"},
@@ -735,31 +779,64 @@ class EconomyFeature(commands.Cog):
         storage.deactivate_guild_events(interaction.guild.id)
         await interaction.followup.send("\u2705 All custom events ended for this guild.")
 
-    @event_group.command(name="list", description="Show active events for this guild")
+    @event_group.command(name="list", description="Show full event calendar for the year")
     async def event_list_cmd(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         storage = self._get_storage()
         if not storage:
             await interaction.followup.send("\u274c Economy system unavailable")
             return
-        active = get_active_events(storage, interaction.guild.id)
-        if not active:
-            await interaction.followup.send("No active events.")
-            return
-        lines = []
-        for ev in active:
-            pct = round(ev.get("discount", 0) * 100)
-            mult = ev.get("mult", 1.0)
-            label = ev.get("label", ev.get("reason", "Unknown"))
-            source = "Global" if not ev.get("_custom") else "Custom"
-            lines.append(f"\U0001f539 **{label}** ({source})")
-            if pct > 0:
-                lines.append(f"   Giảm {pct}%")
-            if mult > 1.0:
-                lines.append(f"   x{mult} Coin")
+
+        year = datetime.now(timezone.utc).year
+        today = date.today()
+        entries = _event_schedule_entries(year)
+
         embed = discord.Embed(
-            title="\U0001f525 Active Events",
-            description="\n".join(lines) if lines else "None",
+            title=f"\U0001f4c5 Lịch Sự Kiện {year}",
+            description="\U0001f7e2 Đang diễn ra  •  \U0001f512 Sắp tới  •  \u2705 Đã qua",
             color=discord.Color.gold(),
         )
+
+        current_month = 0
+        month_lines = []
+        for e in entries:
+            d = e["date"]
+            if d.month != current_month:
+                if month_lines:
+                    embed.add_field(name=f"\u2500\u2500 Tháng {current_month} \u2500\u2500", value="\n".join(month_lines), inline=False)
+                current_month = d.month
+                month_lines = []
+
+            if e["status"] == "active":
+                icon = "\U0001f7e2"
+            elif e["status"] == "past":
+                icon = "\u2705"
+            else:
+                icon = "\U0001f512"
+
+            pct = round(e["discount"] * 100)
+            mult = e["mult"]
+            month_lines.append(f"{icon} **{e['label']}** {d.day}/{d.month} \u2014 Giảm {pct}% + x{mult} Coin")
+
+        if month_lines:
+            embed.add_field(name=f"\u2500\u2500 Tháng {current_month} \u2500\u2500", value="\n".join(month_lines), inline=False)
+
+        embed.set_footer(text="Tất cả sự kiện diễn ra từ 00:00 \u0111\u1ebfn 23:59 (GMT+7)")
+
+        custom = storage.get_active_custom_events(interaction.guild.id, datetime.now(timezone.utc).isoformat()) if storage else []
+        if custom:
+            custom_lines = []
+            for ev in custom:
+                label = ev.get("reason", f"S\u1ef1 ki\u1ec7n #{ev['id']}")
+                pct = round(ev["value"] * 100) if ev["event_type"] in ("shop_discount", "both") else None
+                mult = ev["value"] if ev["event_type"] in ("coin_multiplier", "both") else None
+                parts = []
+                if mult:
+                    parts.append(f"x{mult} Coin")
+                if pct:
+                    parts.append(f"Giảm {pct}%")
+                custom_lines.append(f"\U0001f4cc **{label}** \u2014 {', '.join(parts)}")
+            if custom_lines:
+                embed.add_field(name="\U0001f6e0\uFE0F Tùy Chỉnh", value="\n".join(custom_lines), inline=False)
+
         await interaction.followup.send(embed=embed)
