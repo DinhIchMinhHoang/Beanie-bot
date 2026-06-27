@@ -68,6 +68,9 @@ def mock_config():
     config = MagicMock()
     config.DISCORD_TOKEN = "test_discord_token"
     config.GEMINI_API_KEY = "test_gemini_key"
+    config.OPENCODE_API_KEY = "test_opencode_key"
+    config.OPENCODE_API_BASE = "https://opencode.ai/zen/go/v1"
+    config.OPENCODE_MODEL = "deepseek-v4-flash-free"
     config.BIRTHDAY_FILE = "test_birthdays.json"
     config.VOICE_STATS_FILE = "test_voice_stats.json"
     config.COMPETITORS_FILE = "test_competitors.json"
@@ -78,8 +81,8 @@ def mock_config():
     config.RANK_CATEGORY_ID = 345678
     config.RANK_ROLE_IDS = [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009]
     config.BIRTHDAY_WISHES = ["Happy birthday {name}!", "Chúc mừng sinh nhật {name}!"]
-    config.MEMORY_LIMIT = 200
-    config.WARNING_THRESHOLD = 194
+    config.MEMORY_LIMIT = 300
+    config.WARNING_THRESHOLD = 294
     config.COOLDOWN_MINUTES = 60
     config.CHUNK_SIZE = 1900
     config.VIETNAM_TZ = None  # Will be set in tests if needed
@@ -125,11 +128,12 @@ def temp_json_files(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def mock_gemini_client():
-    """Create a mock Gemini AI client."""
+def mock_openai_client():
+    """Create a mock AsyncOpenAI client."""
     client = AsyncMock()
-    client.models = MagicMock()
-    client.models.generate_content = AsyncMock()
+    client.chat = MagicMock()
+    client.chat.completions = MagicMock()
+    client.chat.completions.create = AsyncMock()
     return client
 
 

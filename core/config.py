@@ -30,10 +30,13 @@ class BotConfig:
     
     # External API Keys
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY")
+    OPENCODE_API_BASE = os.getenv("OPENCODE_API_BASE", "https://opencode.ai/zen/go/v1")
+    OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "deepseek-v4-flash-free")
     
     # Memory/Chat Configuration
-    MEMORY_LIMIT = 200
-    WARNING_THRESHOLD = 194
+    MEMORY_LIMIT = 300
+    WARNING_THRESHOLD = 294
     COOLDOWN_MINUTES = 60
     CHUNK_SIZE = 1900
     

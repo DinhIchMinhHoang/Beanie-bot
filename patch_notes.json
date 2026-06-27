@@ -1,23 +1,33 @@
 {
-  "version": "v1.1.0",
-  "title": "\uD83D\uDCE1 Beanie Bot C\u1EADp Nh\u1EADt",
-  "color": "gold",
+  "version": "v2.0.0",
+  "title": "\uD83E\uDD16 Beanie Bot v2.0.0 \u2014 AI Agent & Model Upgrade",
+  "color": "purple",
   "fields": [
     {
-      "name": "\u2728 T\u00EDnh N\u0103ng M\u1EDBi",
-      "value": "- H\u1EC7 th\u1ED1ng **s\u1EF1 ki\u1EC7n** \u2013 Gi\u1EA3m gi\u00E1 shop + x2 Coin v\u00E0o c\u00E1c ng\u00E0y \u0111\u1EB7c bi\u1EC7t\n- **K\u00EAnh th\u00F4ng b\u00E1o** `\uD83D\uDC1B\u00B7beanie_patch_update` \u2013 Chi ti\u1EBFt b\u1EA3n c\u1EADp nh\u1EADt\n- **Hall of Fame** \u2013 Hi\u1EC3n th\u1ECB t\u1EA5t c\u1EA3 ng\u01B0\u1EDDi ch\u01A1i, top 3 \u0111\u01B0\u1EE3c t\u00F4 s\u00E1ng",
+      "name": "\uD83E\uDDE0 M\u00F4 H\u00ECnh AI M\u1EDBi",
+      "value": "- Chuy\u1EC3n t\u1EEB **Gemini 2.5 Flash** sang **DeepSeek V4 Flash Free**\n- Dung l\u01B0\u1EE3ng context **l\u1EDBn h\u01A1n nhi\u1EC1u** \u2014 nh\u1EDB \u0111\u01B0\u1EE3c nhi\u1EC1u h\u1ED9i tho\u1EA1i h\u01A1n\n- T\u1ED1c \u0111\u1ED9 ph\u1EA3n h\u1ED3i nhanh, \u1ED5n \u0111\u1ECBnh qua OpenCode API",
       "inline": false
     },
     {
-      "name": "\uD83D\uDD27 S\u1EEDa L\u1ED7i",
-      "value": "- S\u1EEDa l\u1ED7i role sync kh\u00F4ng ho\u1EA1t \u0111\u1ED9ng (unpack 4-tuple)\n- C\u00E2n b\u1EB1ng gi\u00E1 c\u1EEDa h\u00E0ng",
+      "name": "\uD83E\uDD16 /beanie Gi\u1EDD L\u00E0 AI Agent",
+      "value": "- **Tr\u00F2 chuy\u1EC7n t\u1EF1 nhi\u00EAn** v\u1EABn nh\u01B0 c\u0169 \u2014 chat /beanie nh\u01B0 b\u00ECnh th\u01B0\u1EDDng\n- **M\u1EDBi: AI t\u1EF1 \u0111\u1ED9ng d\u00F9ng t\u00EDnh n\u0103ng bot** \u2014 kh\u00F4ng c\u1EA7n nh\u1EDB l\u1EC7nh slash!\n  \u2022 `/beanie cho xem rank c\u1EE7a tao` \u2192 t\u1EF1 tra rank\n  \u2022 `/beanie tao c\u00F2n bao nhi\u00EAu coin` \u2192 xem s\u1ED1 d\u01B0\n  \u2022 `/beanie ai \u0111ang d\u1EABn \u0111\u1EA7u` \u2192 xem leaderboard\n  \u2022 `/beanie trong shop c\u00F3 g\u00EC` \u2192 xem danh s\u00E1ch item\n  \u2022 `/beanie check server MC` \u2192 ki\u1EC3m tra Minecraft server",
       "inline": false
     },
     {
-      "name": "\uD83D\uDEE0\uFE0F K\u1EF9 Thu\u1EADt",
-      "value": "- C\u01A1 s\u1EDF d\u1EEF li\u1EC7u: th\u00EAm b\u1EA3ng `economy_events`, c\u1ED9t `patch_notes_channel_id`\n- T\u00E1ch bi\u1EC7t lu\u1ED3ng th\u00F4ng b\u00E1o s\u1EF1 ki\u1EC7n v\u00E0 shop UI",
+      "name": "\u2699\uFE0F C\u00E1ch Ho\u1EA1t \u0110\u1ED9ng",
+      "value": "- B\u1EA1n ch\u1EC9 c\u1EA7n **n\u00F3i y\u00EAu c\u1EA7u b\u1EB1ng gi\u1ECDng t\u1EF1 nhi\u00EAn** \u2014 AI t\u1EF1 hi\u1EC3u v\u00E0 l\u00E0m\n- V\u00ED d\u1EE5: `/beanie g\u1EEDi 50 coin cho @b\u1EA1n` thay v\u00EC nh\u1EDB `/gift`\n- K\u1EBFt qu\u1EA3 hi\u1EC7n ra trong chat, AI gi\u1EA3i th\u00EDch b\u1EB1ng gi\u1ECDng Beanie quen thu\u1ED9c\n- V\u1EABn gi\u1EEF \u0111\u1EA7y \u0111\u1EE7 **l\u1EC7nh slash** c\u0169 \u2014 kh\u00F4ng m\u1EA5t g\u00EC, ch\u1EC9 th\u00EAm c\u00E1ch m\u1EDBi",
+      "inline": false
+    },
+    {
+      "name": "\uD83D\uDCC8 C\u1EA3i Thi\u1EC7n B\u1ED9 Nh\u1EDB",
+      "value": "- T\u0103ng gi\u1EDBi h\u1EA1n b\u1ED9 nh\u1EDB t\u1EEB **200 \u2192 300 tin nh\u1EAFn** tr\u01B0\u1EDBc khi lockdown\n- \u0110\u1ECBnh d\u1EA1ng memory m\u1EDBi h\u1ED7 tr\u1EE3 tool calls \u2014 AI nh\u1EDB \u0111\u01B0\u1EE3c c\u00E1c h\u00E0nh \u0111\u1ED9ng \u0111\u00E3 l\u00E0m\n- V\u1EABn gi\u1EEF c\u01A1 ch\u1EBF **lockdown 1 gi\u1EDD** v\u00E0 **rate limiter** \u0111\u1EC3 tr\u00E1nh spam",
+      "inline": false
+    },
+    {
+      "name": "\uD83D\uDD27 K\u1EF9 Thu\u1EADt",
+      "value": "- Thay th\u1EBF `google-genai` \u2192 `AsyncOpenAI` v\u1EDBi OpenCode API\n- Module `features/agent.py` m\u1EDBi \u2014 tool registry, dispatch, system prompt\n- Tool definitions theo chu\u1EA9n OpenAI function calling\n- API base: `opencode.ai/zen/go/v1` \u2022 Model: `deepseek-v4-flash-free`",
       "inline": false
     }
   ],
-  "footer": "Beanie Bot \u2022 C\u1EADp nh\u1EADt t\u1EF1 \u0111\u1ED9ng"
+  "footer": "Beanie Bot v2.0.0 \u2022 N\u00F3i chuy\u1EC7n t\u1EF1 nhi\u00EAn, l\u00E0m m\u1ECDi th\u1EE9"
 }

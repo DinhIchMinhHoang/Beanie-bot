@@ -1,6 +1,6 @@
 discord.py[voice]
 aiosqlite
-google-genai
+# google-genai removed — replaced by openai SDK (AsyncOpenAI) via OpenCode API
 python-dotenv
 pytz
 openai

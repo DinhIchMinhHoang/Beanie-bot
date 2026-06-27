@@ -10,7 +10,7 @@ import shutil
 import logging
 import discord
 from discord.ext import commands
-from google import genai
+from openai import AsyncOpenAI
 from azure.identity import ClientSecretCredential
 from azure.mgmt.compute import ComputeManagementClient
 
@@ -126,7 +126,7 @@ if (BotConfig.AZURE_SUBSCRIPTION_ID and BotConfig.AZURE_CLIENT_ID and
 
 
 # --- External Service Setup ---
-gemini_client = genai.Client(api_key=BotConfig.GEMINI_API_KEY)
+openai_client = AsyncOpenAI(api_key=BotConfig.OPENCODE_API_KEY, base_url=BotConfig.OPENCODE_API_BASE)
 
 
 # --- Bot Setup ---
@@ -152,8 +152,18 @@ async def load_features():
         from features.admin import AdminFeature
         from features.economy import EconomyFeature
         
-        # Initialize and add AI Chat feature
-        ai_chat = AIChatFeature(bot, gemini_client, BotConfig)
+        # Voice tracking must exist before AI Chat (agent tools reference it)
+        voice_tracking = VoiceTrackingFeature(bot, FFMPEG_EXEC, BotConfig)
+        await bot.add_cog(voice_tracking)
+        logging.info("Loaded Voice Tracking feature")
+
+        # Economy must exist before AI Chat (agent tools reference it)
+        economy = EconomyFeature(bot, BotConfig, voice_tracking)
+        await bot.add_cog(economy)
+        logging.info("Loaded Economy feature")
+
+        # Initialize and add AI Chat feature (depends on voice + economy for agent tools)
+        ai_chat = AIChatFeature(bot, openai_client, BotConfig, voice_tracking, economy)
         await bot.add_cog(ai_chat)
         logging.info("Loaded AI Chat feature")
         
@@ -162,10 +172,7 @@ async def load_features():
         await bot.add_cog(minecraft)
         logging.info("Loaded Minecraft feature")
         
-        # Initialize and add Voice Tracking feature
-        voice_tracking = VoiceTrackingFeature(bot, FFMPEG_EXEC, BotConfig)
-        await bot.add_cog(voice_tracking)
-        logging.info("Loaded Voice Tracking feature")
+        # Voice tracking and economy are now initialized before AI Chat (see above)
         
         # Add entry commands group
         entry_group = EntryCommandsGroup(bot, voice_tracking)
@@ -187,10 +194,7 @@ async def load_features():
         await bot.add_cog(admin)
         logging.info("Loaded Admin feature")
         
-        # Initialize and add Economy feature
-        economy = EconomyFeature(bot, BotConfig, voice_tracking)
-        await bot.add_cog(economy)
-        logging.info("Loaded Economy feature")
+        # Economy is now initialized before AI Chat (see above)
         
     except Exception as e:
         logging.error(f"Failed to load features: {e}", exc_info=True)
