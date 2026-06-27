@@ -25,7 +25,7 @@
     },
     {
       "name": "\uD83D\uDD27 K\u1EF9 Thu\u1EADt",
-      "value": "- Thay th\u1EBF `google-genai` \u2192 `AsyncOpenAI` v\u1EDBi OpenCode API\n- Module `features/agent.py` m\u1EDBi \u2014 tool registry, dispatch, system prompt\n- Tool definitions theo chu\u1EA9n OpenAI function calling\n- API base: `opencode.ai/zen/go/v1` \u2022 Model: `deepseek-v4-flash-free`",
+      "value": "- Thay th\u1EBF `google-genai` \u2192 `AsyncOpenAI` v\u1EDBi OpenCode API\n- Module `features/agent.py` m\u1EDBi \u2014 tool registry, dispatch, system prompt\n- Tool definitions theo chu\u1EA9n OpenAI function calling\n- API base: `opencode.ai/zen/go/v1` \u2022 Model: `deepseek-v4-flash`",
       "inline": false
     }
   ],

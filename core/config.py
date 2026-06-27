@@ -32,7 +32,7 @@ class BotConfig:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY")
     OPENCODE_API_BASE = os.getenv("OPENCODE_API_BASE", "https://opencode.ai/zen/go/v1")
-    OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "deepseek-v4-flash-free")
+    OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "deepseek-v4-flash")
     
     # Memory/Chat Configuration
     MEMORY_LIMIT = 300
