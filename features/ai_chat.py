@@ -62,7 +62,7 @@ class AIChatFeature(commands.Cog):
         storage = storage_getter()
         return storage if hasattr(storage, "append_chat_history") else None
 
-    def add_to_memory(self, guild_id: int, role: str, content=None, tool_calls=None, tool_call_id=None):
+    def add_to_memory(self, guild_id: int, role: str, content=None, tool_calls=None, tool_call_id=None, user_name=None):
         now_vn = datetime.now(self.config.VIETNAM_TZ)
         memory = self.get_guild_memory(guild_id)
         entry = {"role": role, "time": now_vn}
@@ -72,6 +72,8 @@ class AIChatFeature(commands.Cog):
             entry["tool_calls"] = tool_calls
         if tool_call_id is not None:
             entry["tool_call_id"] = tool_call_id
+        if user_name is not None:
+            entry["user"] = user_name
         memory.append(entry)
 
         if len(memory) > self.config.MEMORY_LIMIT:
@@ -163,7 +165,7 @@ class AIChatFeature(commands.Cog):
 
         while not queue.empty():
             message, text = await queue.get()
-            self.add_to_memory(guild_id, "user", text)
+            self.add_to_memory(guild_id, "user", text, user_name=message.author.display_name)
 
             if len(memory) == self.config.WARNING_THRESHOLD:
                 await message.channel.send("⚠️ You have 3 messages left, make them worthy!")
