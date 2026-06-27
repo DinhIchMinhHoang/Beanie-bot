@@ -374,6 +374,13 @@ async def help_command(interaction: discord.Interaction):
 
 # --- Bot Events ---
 @bot.event
+async def on_command_error(ctx, error):
+    """Silently ignore CommandNotFound for unregistered /commands like /beanie."""
+    if isinstance(error, commands.CommandNotFound):
+        return
+    raise error
+
+@bot.event
 async def on_ready():
     """Called when the bot is ready."""
     print(f"Logged in as {bot.user}")

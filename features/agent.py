@@ -1,6 +1,9 @@
 """Agent tools and system prompt for Beanie Bot AI."""
 
+import json
 import logging
+import re
+import asyncio
 import discord
 
 TOOL_DEFINITIONS = [
@@ -28,8 +31,22 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "richest",
+            "description": "Xem bảng xếp hạng coin của server (top người giàu nhất)",
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "shop_list",
             "description": "Xem danh sách các item có thể mua trong shop",
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_birthdays",
+            "description": "Xem danh sách sinh nhật đã đăng ký trong server",
         },
     },
     {
@@ -53,7 +70,7 @@ TOOL_DEFINITIONS = [
                     },
                     "amount": {
                         "type": "number",
-                        "description": "Số coin muốn gửi"
+                        "description": "Số coin muốn gửi (tối thiểu 10)"
                     }
                 },
                 "required": ["recipient", "amount"]
@@ -72,12 +89,14 @@ SYSTEM_PROMPT = (
     "BẠN CÓ CÁC CÔNG CỤ SAU:\n"
     "- check_economy: Xem số dư coin của người dùng\n"
     "- check_rank: Xem hạng voice của người dùng\n"
-    "- leaderboard: Xem bảng xếp hạng\n"
+    "- leaderboard: Xem bảng xếp hạng voice\n"
+    "- richest: Xem bảng xếp hạng coin\n"
     "- shop_list: Xem danh sách item trong shop\n"
+    "- check_birthdays: Xem danh sách sinh nhật\n"
     "- check_server_status: Kiểm tra Minecraft server\n"
     "- gift_coins: Tặng coin cho người khác (có 2 tham số: recipient và amount)\n\n"
     "KHI NÀO DÙNG TOOL:\n"
-    "- Khi người dùng hỏi về rank, coin, leaderboard, shop, server — hãy gọi tool tương ứng\n"
+    "- Khi người dùng hỏi về rank, coin, leaderboard, shop, birthday, server — hãy gọi tool tương ứng\n"
     "- Khi người dùng muốn tặng coin — dùng gift_coins với recipient (tên người dùng) và amount (số coin)\n"
     "- Nếu chỉ chat bình thường (hỏi thăm, tán gẫu) — KHÔNG cần gọi tool, trả lời tự nhiên\n"
     "- Nếu không chắc có tool phù hợp hay không — cứ trả lời tự nhiên, đừng bịa tool"
@@ -118,38 +137,50 @@ async def dispatch_tool(tool_name, tool_args, ctx):
         if tool_name == "check_economy":
             if storage is None:
                 return "Hệ thống chưa sẵn sàng, thử lại sau nhé!"
-            account = storage.get_economy_account(user_id, guild_id)
-            balance = account["coins"] if account else 0
+            balance = storage.get_balance(guild_id, user_id)
             return f"Bạn đang có **{balance:.1f} 🪙** trong tài khoản."
 
         elif tool_name == "check_rank":
             if storage is None:
                 return "Hệ thống chưa sẵn sàng, thử lại sau nhé!"
-            stats = storage.get_voice_stats(user_id, guild_id)
-            total_seconds = stats.get("total_seconds", 0) if stats else 0
+            stats = storage.load_voice_stats(guild_id)
+            total_seconds = stats.get(str(user_id), 0)
             hours = total_seconds / 3600
             rank_name = "Unranked"
             if voice_feature:
-                rank_name = voice_feature.get_user_rank(user_id, guild_id)
+                rank_name = voice_feature.get_user_rank(hours)[0]
             return f"Bạn đang **{rank_name}** với **{hours:.1f} giờ** voice chat."
 
         elif tool_name == "leaderboard":
             if storage is None:
                 return "Hệ thống chưa sẵn sàng, thử lại sau nhé!"
-            leaders = storage.get_voice_leaderboard(guild_id, limit=10)
-            if not leaders:
-                return "Chưa có ai trong bảng xếp hạng cả."
+            all_time = storage.load_all_time_voice_stats(guild_id)
+            if not all_time:
+                return "Chưa có ai trong bảng xếp hạng voice cả."
+            sorted_users = sorted(all_time.items(), key=lambda x: x[1], reverse=True)[:10]
             lines = ["**Bảng xếp hạng voice:**"]
-            for i, (uid, seconds) in enumerate(leaders, 1):
+            for i, (uid_str, seconds) in enumerate(sorted_users, 1):
+                uid = int(uid_str)
                 member = channel.guild.get_member(uid) if channel else None
                 name = member.display_name if member else f"<@{uid}>"
                 hours = seconds / 3600
                 lines.append(f"{i}. **{name}** — {hours:.1f}h")
             return "\n".join(lines)
 
+        elif tool_name == "richest":
+            if storage is None:
+                return "Hệ thống chưa sẵn sàng, thử lại sau nhé!"
+            leaders = storage.get_coin_leaderboard(guild_id, limit=10)
+            if not leaders:
+                return "Chưa có ai trong bảng xếp hạng coin cả."
+            lines = ["**Bảng xếp hạng coin:**"]
+            for i, (uid, coins) in enumerate(leaders, 1):
+                member = channel.guild.get_member(uid) if channel else None
+                name = member.display_name if member else f"<@{uid}>"
+                lines.append(f"{i}. **{name}** — {coins:.1f} 🪙")
+            return "\n".join(lines)
+
         elif tool_name == "shop_list":
-            if economy_feature is None:
-                return "Tính năng shop chưa sẵn sàng."
             from features.economy import SHOP_ITEMS
             if not SHOP_ITEMS:
                 return "Shop đang trống."
@@ -161,58 +192,106 @@ async def dispatch_tool(tool_name, tool_args, ctx):
                     lines.append(f"  _{item['description']}_")
             return "\n".join(lines)
 
+        elif tool_name == "check_birthdays":
+            if storage is None:
+                return "Hệ thống chưa sẵn sàng, thử lại sau nhé!"
+            birthdays = storage.load_birthdays(guild_id)
+            if not birthdays:
+                return "Chưa có ai đăng ký sinh nhật."
+            lines = ["**Danh sách sinh nhật:**"]
+            for uid_str, date_str in birthdays.items():
+                uid = int(uid_str)
+                member = channel.guild.get_member(uid) if channel else None
+                name = member.display_name if member else f"<@{uid}>"
+                lines.append(f"- **{name}** — {date_str}")
+            return "\n".join(lines)
+
         elif tool_name == "check_server_status":
             if minecraft_feature is None:
                 return "Tính năng Minecraft chưa được cài đặt."
+            parts = []
             try:
-                embed = await minecraft_feature._build_status_embed()
-                text = ""
-                for field in embed.fields:
-                    text += f"**{field.name}:** {field.value}\n"
-                return text.strip() if text else "Không thể lấy thông tin server."
+                if minecraft_feature.compute_client:
+                    vm = minecraft_feature.compute_client.virtual_machines.get(
+                        minecraft_feature.config.AZURE_RESOURCE_GROUP,
+                        minecraft_feature.config.AZURE_VM_NAME,
+                        expand='instanceView'
+                    )
+                    vm_status = vm.instance_view.statuses[1].display_status
+                    parts.append(f"🖥️ Azure VM: {vm_status}")
+                else:
+                    parts.append("🖥️ Azure VM: Chưa cấu hình")
             except Exception as e:
-                return f"Lỗi kiểm tra server: {e}"
+                parts.append(f"🖥️ Azure VM: Lỗi — {e}")
+            try:
+                if (minecraft_feature.vm_is_running()
+                        and minecraft_feature.config.RCON_ENABLED
+                        and minecraft_feature.config.RCON_PASSWORD):
+                    from mcrcon import MCRcon
+                    try:
+                        with MCRcon(
+                            minecraft_feature.config.RCON_HOST,
+                            minecraft_feature.config.RCON_PASSWORD,
+                            port=minecraft_feature.config.RCON_PORT,
+                        ) as mcr:
+                            out = mcr.command("list")
+                        m = re.search(r"There are (\d+) of a max", out)
+                        if m:
+                            parts.append(f"🟢 Minecraft (RCON): {m.group(1)} players")
+                        else:
+                            parts.append("🟡 Minecraft (RCON): OK (không parse được player)")
+                    except Exception:
+                        parts.append("⚫ Minecraft (RCON): Không kết nối được")
+                else:
+                    parts.append("⚫ Minecraft: VM chưa chạy hoặc RCON chưa bật")
+            except Exception:
+                parts.append("⚫ Minecraft: Không xác định")
+            return "\n".join(parts) if parts else "Không có thông tin server."
 
         elif tool_name == "gift_coins":
-            if storage is None or economy_feature is None:
+            if storage is None:
                 return "Hệ thống chưa sẵn sàng."
             recipient_str = tool_args.get("recipient", "")
             amount = tool_args.get("amount", 0)
             if amount <= 0:
                 return "Số coin phải lớn hơn 0!"
-            # Resolve recipient from the guild
+            if amount < 10:
+                return "Số coin tối thiểu là 10 🪙!"
             guild = channel.guild if channel else None
             recipient_member = None
             if guild:
-                # Try by mention first
                 for member in guild.members:
                     if member.mention == recipient_str or f"<@{member.id}>" == recipient_str:
                         recipient_member = member
                         break
                 if not recipient_member:
-                    # Try by display_name
                     for member in guild.members:
                         if member.display_name.lower() == recipient_str.lower():
                             recipient_member = member
                             break
                 if not recipient_member:
-                    # Try by name
                     for member in guild.members:
                         if member.name.lower() == recipient_str.lower():
                             recipient_member = member
                             break
             if not recipient_member:
                 return f"Không tìm thấy người dùng '{recipient_str}' trong server."
-            # Check sender balance
-            account = storage.get_economy_account(user_id, guild_id)
-            balance = account["coins"] if account else 0
-            if balance < amount:
-                return f"Bạn chỉ có {balance:.1f}🪙, không đủ để gửi {amount}🪙."
-            # Execute transfer
-            success = economy_feature._transfer_coins(user_id, recipient_member.id, guild_id, amount, storage)
-            if success:
-                return f"Đã gửi **{amount}🪙** cho **{recipient_member.display_name}** thành công!"
-            return "Gửi coin thất bại, thử lại sau."
+            if recipient_member.id == user_id:
+                return "Không thể tặng coin cho chính mình!"
+            balance = storage.get_balance(guild_id, user_id)
+            tax = int(amount * 0.1)
+            total_deduct = amount + tax
+            if balance < total_deduct:
+                return f"Bạn chỉ có {balance:.1f}🪙, cần {total_deduct}🪙 (gồm {tax}🪙 thuế) để gửi {amount}🪙."
+            success = storage.spend_coins(guild_id, user_id, total_deduct)
+            if not success:
+                return "Giao dịch thất bại, thử lại sau."
+            storage.add_coins(guild_id, recipient_member.id, float(amount))
+            sender_new = storage.get_balance(guild_id, user_id)
+            return (
+                f"Đã gửi **{amount}🪙** cho **{recipient_member.display_name}** thành công! "
+                f"(Thuế: {tax}🪙)\nSố dư mới của bạn: {sender_new:.1f}🪙"
+            )
 
         else:
             return f"Tool '{tool_name}' chưa được hỗ trợ."
