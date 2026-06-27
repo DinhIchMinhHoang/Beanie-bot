@@ -126,7 +126,14 @@ if (BotConfig.AZURE_SUBSCRIPTION_ID and BotConfig.AZURE_CLIENT_ID and
 
 
 # --- External Service Setup ---
-openai_client = AsyncOpenAI(api_key=BotConfig.OPENCODE_API_KEY, base_url=BotConfig.OPENCODE_API_BASE)
+openai_client = AsyncOpenAI(
+    api_key=BotConfig.OPENROUTER_API_KEY,
+    base_url=BotConfig.OPENROUTER_API_BASE,
+    default_headers={
+        "HTTP-Referer": "https://github.com/DinhIchMinhHoang/Beanie-bot",
+        "X-Title": "Beanie Bot",
+    },
+)
 
 
 # --- Bot Setup ---

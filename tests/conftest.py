@@ -68,9 +68,9 @@ def mock_config():
     config = MagicMock()
     config.DISCORD_TOKEN = "test_discord_token"
     config.GEMINI_API_KEY = "test_gemini_key"
-    config.OPENCODE_API_KEY = "test_opencode_key"
-    config.OPENCODE_API_BASE = "https://opencode.ai/zen/go/v1"
-    config.OPENCODE_MODEL = "deepseek-v4-flash-free"
+    config.OPENROUTER_API_KEY = "test_openrouter_key"
+    config.OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+    config.OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
     config.BIRTHDAY_FILE = "test_birthdays.json"
     config.VOICE_STATS_FILE = "test_voice_stats.json"
     config.COMPETITORS_FILE = "test_competitors.json"

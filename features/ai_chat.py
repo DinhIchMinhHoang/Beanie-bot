@@ -179,7 +179,7 @@ class AIChatFeature(commands.Cog):
                     messages = build_messages(memory, text, max_context=60)
 
                     response = await self.openai_client.chat.completions.create(
-                        model=self.config.OPENCODE_MODEL,
+                        model=self.config.OPENROUTER_MODEL,
                         messages=messages,
                         tools=TOOL_DEFINITIONS,
                         tool_choice="auto",
@@ -226,7 +226,7 @@ class AIChatFeature(commands.Cog):
                         messages_with_results = build_messages(memory, text, max_context=60)
 
                         final_response = await self.openai_client.chat.completions.create(
-                            model=self.config.OPENCODE_MODEL,
+                            model=self.config.OPENROUTER_MODEL,
                             messages=messages_with_results,
                         )
 
