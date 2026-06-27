@@ -194,6 +194,29 @@ CATEGORY_META = {
 }
 
 
+def process_purchase(
+    storage, guild_id: int, user_id: int, item_key: str, item_info: dict, discounts: dict | None = None
+) -> tuple[bool, str, float]:
+    """Process a shop item purchase.
+    Returns (success, message, new_balance).
+    """
+    sale_price = item_info["cost"]
+    if discounts:
+        d = discounts.get(item_info.get("category", ""), 0)
+        if d > 0:
+            sale_price = round(item_info["cost"] * (1 - d))
+    balance = storage.get_balance(guild_id, user_id)
+    if balance < sale_price:
+        return False, f"Cần **{sale_price}🪙** nhưng chỉ có {balance:.1f}🪙.", balance
+    success = storage.spend_coins(guild_id, user_id, sale_price)
+    if not success:
+        return False, "Giao dịch thất bại.", balance
+    month = datetime.now().strftime("%Y-%m")
+    storage.add_purchase(guild_id, user_id, month, item_info["type"], item_info["value"])
+    new_balance = storage.get_balance(guild_id, user_id)
+    return True, f"Đã mua **{item_info['emoji']} {item_info['name']}** thành công! (Giá: {sale_price}🪙)", new_balance
+
+
 class ShopView(discord.ui.View):
     def __init__(self, cog, user_id, guild_id):
         super().__init__(timeout=180)
@@ -318,17 +341,15 @@ class ShopView(discord.ui.View):
                 view=None,
             )
             return
-        sale_px = self._sale_price(info)
-        success = storage.spend_coins(self.guild_id, self.user_id, sale_px)
+        success, msg, new_balance = process_purchase(
+            storage, self.guild_id, self.user_id, key, info, self.discounts
+        )
         if not success:
             await interaction.response.edit_message(
-                embed=discord.Embed(title="\u274c Purchase Failed", description="Insufficient coins.", color=discord.Color.red()),
+                embed=discord.Embed(title="\u274c Purchase Failed", description=msg, color=discord.Color.red()),
                 view=self,
             )
             return
-        month = datetime.now().strftime("%Y-%m")
-        storage.add_purchase(self.guild_id, self.user_id, month, info["type"], info["value"])
-        new_balance = self.cog.get_balance(self.guild_id, self.user_id)
         embed = discord.Embed(
             title="\u2705 Purchase Successful!",
             description=f"**{info['emoji']} {info['name']}** added!\n"

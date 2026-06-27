@@ -22,6 +22,54 @@ from core.permissions import admin_only
 from features.economy import get_coin_multiplier
 
 
+async def add_competitor(voice_feature, guild, target_user, config) -> tuple[bool, str]:
+    """Add a user to voice competition. Returns (success, message)."""
+    guild_id = guild.id
+    user_id = str(target_user.id)
+    competitors = voice_feature.load_competitors(guild_id)
+    if user_id in competitors:
+        return False, f"{target_user.display_name} đã tham gia rồi!"
+    stats = voice_feature.load_voice_stats(guild_id)
+    if user_id not in stats:
+        stats[user_id] = 0
+        voice_feature.save_voice_stats(guild_id, stats)
+    guild_config = config.get_guild_config(guild_id)
+    rank_category_id = guild_config.get_rank_category_id()
+    category = guild.get_channel(rank_category_id) if rank_category_id else None
+    if not category:
+        return False, "Danh mục rank chưa được cấu hình."
+    try:
+        total_hours = stats.get(user_id, 0) / 3600
+        new_channel = await category.create_voice_channel(
+            name=f"🏅 {target_user.display_name}: {int(total_hours)}h",
+            reason=f"Rank channel for {target_user.display_name}"
+        )
+        competitors[user_id] = str(new_channel.id)
+        voice_feature.save_competitors(guild_id, competitors)
+        return True, f"Đã tham gia voice tracking! Kênh: {new_channel.mention}"
+    except Exception as e:
+        return False, f"Lỗi tạo kênh: {e}"
+
+
+async def remove_competitor(voice_feature, guild, target_user) -> tuple[bool, str]:
+    """Remove a user from voice competition. Returns (success, message)."""
+    guild_id = guild.id
+    user_id = str(target_user.id)
+    competitors = voice_feature.load_competitors(guild_id)
+    if user_id not in competitors:
+        return False, f"{target_user.display_name} chưa tham gia!"
+    channel_id_str = competitors.pop(user_id)
+    voice_feature.save_competitors(guild_id, competitors)
+    if channel_id_str:
+        ch = guild.get_channel(int(channel_id_str))
+        if ch:
+            try:
+                await ch.delete(reason=f"Removed {target_user.display_name} from competition")
+            except Exception:
+                pass
+    return True, f"Đã loại {target_user.display_name} khỏi voice tracking."
+
+
 class VoiceTrackingFeature(commands.Cog):
     def __init__(self, bot, ffmpeg_exec, config):
         self.bot = bot
