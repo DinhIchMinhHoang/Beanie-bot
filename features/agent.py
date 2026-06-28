@@ -211,6 +211,23 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "execute_mc_command",
+            "description": "Gửi lệnh điều khiển tới Minecraft server (vd: list, op, gamemode, time, weather, tp, give)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Lệnh Minecraft cần thực thi (không bao gồm dấu /)"
+                    }
+                },
+                "required": ["command"]
+            }
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "my_info",
             "description": "Xem nhanh thông tin cá nhân (coin + rank + giờ voice)",
         },
@@ -237,7 +254,7 @@ SYSTEM_PROMPT = (
     "🎂 Birthday: check_birthdays, next_birthday, add_birthday [dd/mm]\n"
     "📅 Events: active_events, event_calendar\n"
     "📊 Channel: channel_hours, channel_stats [tên]\n"
-    "🎮 Minecraft: check_server_status\n"
+    "🎮 Minecraft: check_server_status, execute_mc_command [lệnh]\n"
     "📋 Chung: my_info, help_tools\n\n"
     "QUY TẮC:\n"
     "- Khi người dùng hỏi về thông tin cá nhân (coin, rank, giờ) — dùng my_info\n"
@@ -245,6 +262,7 @@ SYSTEM_PROMPT = (
     "- Khi muốn mua item — dùng buy_item với tên item chính xác\n"
     "- Khi muốn tặng coin — dùng gift_coins\n"
     "- Khi muốn tham gia voice tracking — dùng join_competition\n"
+    "- Khi muốn gửi lệnh điều khiển Minecraft — dùng execute_mc_command với lệnh (vd: 'op Bean', 'gamemode creative', 'time set day')\n"
     "- Nếu chỉ chat bình thường — không cần gọi tool, trả lời tự nhiên"
 )
 
@@ -719,6 +737,29 @@ async def dispatch_tool(tool_name, tool_args, ctx):
             except Exception:
                 parts.append("⚫ Minecraft: Không xác định")
             return "\n".join(parts) if parts else "Không có thông tin server."
+
+        elif tool_name == "execute_mc_command":
+            if minecraft_feature is None:
+                return "Tính năng Minecraft chưa được cài đặt."
+            command = kwargs.get("command", "")
+            if not command:
+                return "Vui lòng nhập lệnh cần thực thi."
+            try:
+                from mcrcon import MCRcon
+                host = minecraft_feature.config.RCON_HOST or minecraft_feature.config.MC_SERVER_IP
+                if not host or not minecraft_feature.config.RCON_PASSWORD:
+                    return "RCON chưa được cấu hình."
+                with MCRcon(
+                    host,
+                    minecraft_feature.config.RCON_PASSWORD,
+                    port=minecraft_feature.config.RCON_PORT,
+                ) as mcr:
+                    out = mcr.command(command)
+                if not out or out.strip() == "":
+                    return f"✅ Đã thực thi lệnh `/{command}` (không có output)."
+                return f"✅ `/{command}`\n```\n{out[:1500]}\n```"
+            except Exception as e:
+                return f"❌ Lỗi khi thực thi lệnh: {str(e)[:300]}"
 
         # ── General ──────────────────────────────────────────────
 

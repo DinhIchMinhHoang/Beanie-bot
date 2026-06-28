@@ -118,7 +118,7 @@ class MinecraftFeature(commands.Cog):
             return str(e)
     
     def wait_for_mc_shutdown(self, max_wait=None, poll_interval=None):
-        """Wait for Minecraft server to shut down."""
+        """Wait for Minecraft server to shut down (systemd)."""
         if max_wait is None:
             max_wait = self.config.SHUTDOWN_MAX_WAIT
         if poll_interval is None:
@@ -128,9 +128,8 @@ class MinecraftFeature(commands.Cog):
         if self.config.SSH_PASSWORD and self.config.SSH_HOST and self.config.SSH_USER:
             while time.time() - start < max_wait:
                 try:
-                    cmd = 'bash -lc "screen -ls | grep mc >/dev/null && echo RUNNING || echo STOPPED"'
-                    out = self.ssh_command(cmd, timeout=5)
-                    if isinstance(out, str) and out.strip().startswith("STOPPED"):
+                    out = self.ssh_command('sudo systemctl is-active minecraft.service', timeout=5)
+                    if isinstance(out, str) and out.strip() != "active":
                         return True
                 except Exception:
                     pass
@@ -187,9 +186,8 @@ class MinecraftFeature(commands.Cog):
                     pass
             if self.config.SSH_PASSWORD and self.config.SSH_HOST and self.config.SSH_USER:
                 try:
-                    cmd = 'bash -lc "screen -ls | grep mc >/dev/null && echo RUNNING || echo STOPPED"'
-                    out = self.ssh_command(cmd, timeout=5)
-                    if isinstance(out, str) and out.strip().startswith("RUNNING"):
+                    out = self.ssh_command('sudo systemctl is-active minecraft.service', timeout=5)
+                    if isinstance(out, str) and out.strip() == "active":
                         return 1
                     return 0
                 except Exception:
@@ -222,9 +220,8 @@ class MinecraftFeature(commands.Cog):
                     pass
             if self.config.SSH_PASSWORD and self.config.SSH_HOST and self.config.SSH_USER:
                 try:
-                    cmd = 'bash -lc "screen -ls | grep mc >/dev/null && echo RUNNING || echo STOPPED"'
-                    out = await asyncio.wait_for(asyncio.to_thread(self.ssh_command, cmd, 5), timeout=timeout)
-                    if isinstance(out, str) and out.strip().startswith("RUNNING"):
+                    out = await asyncio.wait_for(asyncio.to_thread(self.ssh_command, 'sudo systemctl is-active minecraft.service', 5), timeout=timeout)
+                    if isinstance(out, str) and out.strip() == "active":
                         return 1
                     return 0
                 except Exception:
@@ -313,7 +310,7 @@ class MinecraftFeature(commands.Cog):
                     self.empty_check_count = 0
                     return
                 
-                await asyncio.to_thread(self.ssh_command, 'screen -S mc -p 0 -X stuff "stop^M"')
+                await asyncio.to_thread(self.ssh_command, 'sudo systemctl stop minecraft.service')
                 try:
                     confirmed = await asyncio.to_thread(self.wait_for_mc_shutdown, 45, 5)
                 except Exception:
@@ -418,7 +415,7 @@ class MinecraftFeature(commands.Cog):
             pass
         
         await interaction.followup.send("2️⃣ Bật Minecraft server...")
-        cmd = 'bash -lc "cd ~/minecraft && screen -dmS mc ./run.sh"'
+        cmd = 'sudo systemctl start minecraft.service'
         out = await asyncio.to_thread(self.ssh_command, cmd)
         await interaction.followup.send(f"✅ Lệnh khởi động đã gửi: {out[:1000]}")
         
@@ -493,12 +490,11 @@ class MinecraftFeature(commands.Cog):
         
         await interaction.followup.send("🛑 Đang gửi lệnh tắt server...")
         
-        if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD:
-            try:
-                await asyncio.to_thread(self.rcon_command, 'stop')
-            except:
-                pass
-        await asyncio.to_thread(self.ssh_command, 'screen -S mc -p 0 -X stuff "stop^M"')
+        try:
+            await asyncio.to_thread(self.rcon_command, 'stop')
+        except:
+            pass
+        await asyncio.to_thread(self.ssh_command, 'sudo systemctl stop minecraft.service')
         
         await interaction.followup.send("⏳ Đang chờ server lưu dữ liệu và tắt (45s)...")
         
@@ -532,11 +528,11 @@ class MinecraftFeature(commands.Cog):
             await interaction.followup.send("⚫ **Azure VM:** already deallocated/offline — nothing to restart.")
             return
         
-        await interaction.followup.send("🔄 Force restarting Minecraft server (killing JVM, then starting)...")
+        await interaction.followup.send("🔄 Restarting Minecraft server...")
         if self.config.SSH_PASSWORD and self.config.SSH_HOST and self.config.SSH_USER:
-            cmd = 'bash -lc "pkill -9 -f java || true; sleep 2; cd ~/minecraft && screen -dmS mc ./run.sh"'
+            cmd = 'sudo systemctl restart minecraft.service'
             out = await asyncio.to_thread(self.ssh_command, cmd)
-            await interaction.followup.send(f"✅ Force restart command executed: {str(out)[:1000]}")
+            await interaction.followup.send(f"✅ Restart command executed: {str(out)[:1000]}")
             try:
                 self.manual_grace_until = time.time() + (self.config.MANUAL_GRACE_MINUTES * 60)
             except Exception:
@@ -555,6 +551,28 @@ class MinecraftFeature(commands.Cog):
         
         await interaction.followup.send("⚠️ Không thể thực hiện restart: SSH và RCON đều không được cấu hình.")
     
+    @app_commands.command(name="mc", description="Send a command to the Minecraft server via RCON")
+    @app_commands.describe(command="Minecraft command to execute (e.g. 'list', 'op PlayerName', 'time set day')")
+    async def mc_cmd(self, interaction: discord.Interaction, command: str):
+        """Execute a Minecraft server command via RCON."""
+        await interaction.response.defer()
+        self._save_last_request_channel(interaction.channel_id)
+
+        if not self.config.RCON_ENABLED or not RCON_PKG_AVAILABLE or not self.config.RCON_PASSWORD:
+            await interaction.followup.send("❌ RCON chưa được cấu hình hoặc chưa cài đặt.")
+            return
+
+        if not self.vm_is_running():
+            await interaction.followup.send("⚫ VM không chạy — không thể gửi lệnh.")
+            return
+
+        try:
+            out = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, command), timeout=10)
+            msg = f"✅ **Lệnh:** `/{command}`\n```\n{out[:1900]}\n```"
+            await interaction.followup.send(msg)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Lỗi khi gửi lệnh: {str(e)[:500]}")
+
     def cog_unload(self):
         """Called when cog is unloaded."""
         if self.auto_shutdown_check.is_running():
