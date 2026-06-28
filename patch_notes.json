@@ -1,6 +1,6 @@
 {
-  "version": "v2.0.0",
-  "title": "\uD83E\uDD16 Beanie Bot v2.0.0 \u2014 AI Agent & Model Upgrade",
+  "version": "v2.1.0",
+  "title": "\uD83C\uDFAE Beanie Bot v2.1.0 \u2014 Chaos Minecraft Server & Fixes",
   "color": "purple",
   "fields": [
     {
@@ -24,10 +24,15 @@
       "inline": false
     },
     {
+      "name": "\uD83C\uDFAE Minecraft Server M\u1EDBi",
+      "value": "- VM m\u1EDBi: `20.2.140.93` (2 vCPU, 7.7GB RAM)\n- Server: **Chaos Modpack** Forge 1.20.1-47.4.20\n- 198 mods, th\u1EBF gi\u1EDBi 22GB d\u00E0i h\u01A1n, th\u1EDDi gian reset v\u1EC1 ng\u00E0y 1\n- Cracked (`online-mode=false`), RAM 6G, screen + systemd\n- RCON t\u00EDch h\u1EE3p, `/beanie check server` ho\u1EA1t \u0111\u1ED9ng tr\u1EDF l\u1EA1i",
+      "inline": false
+    },
+    {
       "name": "\uD83D\uDD27 K\u1EF9 Thu\u1EADt",
       "value": "- Thay th\u1EBF `google-genai` \u2192 `AsyncOpenAI` v\u1EDBi OpenCode API\n- Module `features/agent.py` m\u1EDBi \u2014 tool registry, dispatch, system prompt\n- Tool definitions theo chu\u1EA9n OpenAI function calling\n- API base: `opencode.ai/zen/go/v1` \u2022 Model: `deepseek-v4-flash`",
       "inline": false
     }
   ],
-  "footer": "Beanie Bot v2.0.0 \u2022 N\u00F3i chuy\u1EC7n t\u1EF1 nhi\u00EAn, l\u00E0m m\u1ECDi th\u1EE9"
+  "footer": "Beanie Bot v2.1.0 \u2022 Chaos server ch\u00EDnh th\u1EE9c online \u2708\uFE0F"
 }
