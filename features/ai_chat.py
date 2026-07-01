@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import gc
-import os
 from datetime import datetime, timedelta
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -56,11 +55,7 @@ class AIChatFeature(commands.Cog):
         return [f"[{m['role']}] {m.get('content', '')}" for m in memory]
 
     def _get_storage(self):
-        storage_getter = getattr(self.config, "get_storage", None)
-        if not callable(storage_getter):
-            return None
-        storage = storage_getter()
-        return storage if hasattr(storage, "append_chat_history") else None
+        return self.config.get_storage()
 
     def add_to_memory(self, guild_id: int, role: str, content=None, tool_calls=None, tool_call_id=None, user_name=None):
         now_vn = datetime.now(self.config.VIETNAM_TZ)
@@ -80,25 +75,8 @@ class AIChatFeature(commands.Cog):
             memory.pop(0)
 
         storage = self._get_storage()
-        if storage is not None:
-            try:
-                storage.append_chat_history(guild_id, role, json.dumps(entry, default=str), self.config.MEMORY_LIMIT)
-                return
-            except Exception as e:
-                logging.error(f"Failed to write chat history for guild {guild_id}: {e}")
-
-        guild_config = self.config.get_guild_config(guild_id)
         try:
-            if os.path.exists(guild_config.chat_history_file):
-                with open(guild_config.chat_history_file, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-            else:
-                lines = []
-            lines.append(f"[{datetime.now(pytz.UTC).isoformat()}] {role}: {json.dumps(entry, default=str)}\n")
-            if len(lines) > self.config.MEMORY_LIMIT:
-                lines = lines[-self.config.MEMORY_LIMIT:]
-            with open(guild_config.chat_history_file, "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            storage.append_chat_history(guild_id, role, json.dumps(entry, default=str), self.config.MEMORY_LIMIT)
         except Exception as e:
             logging.error(f"Failed to write chat history for guild {guild_id}: {e}")
 

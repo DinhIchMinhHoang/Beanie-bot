@@ -7,7 +7,6 @@ import asyncio
 import logging
 import gc
 import os
-import json
 import time
 import random
 from datetime import datetime
@@ -99,51 +98,14 @@ class VoiceTrackingFeature(commands.Cog):
     # --- Data Management Functions ---
 
     def _get_storage(self):
-        storage_getter = getattr(self.config, "get_storage", None)
-        if not callable(storage_getter):
-            return None
-        storage = storage_getter()
-        return storage if hasattr(storage, "load_voice_stats") else None
+        return self.config.get_storage()
     
     def load_voice_stats(self, guild_id: int):
-        """Lazy load voice stats from JSON file for specific guild. Auto-migrates old format."""
+        """Load voice stats from storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            stats = storage.load_voice_stats(guild_id)
-            # Safety check: verify guild_id is being filtered correctly in storage layer
-            logging.debug(f"Loaded {len(stats)} voice stat entries from storage for guild {guild_id}")
-            return stats
-
-        guild_config = self.config.get_guild_config(guild_id)
-        if not os.path.exists(guild_config.voice_stats_file):
-            logging.info(f"voice stats file not found: {guild_config.voice_stats_file}")
-            return {}
-        try:
-            size = os.path.getsize(guild_config.voice_stats_file)
-            logging.info(f"Loading voice stats from {guild_config.voice_stats_file} (size={size} bytes)")
-        except Exception as e:
-            logging.warning(f"Could not stat {guild_config.voice_stats_file}: {e}")
-        try:
-            with open(guild_config.voice_stats_file, "r", encoding="utf-8-sig") as f:
-                data = json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to load {guild_config.voice_stats_file}: {e}")
-            return {}
-        
-        # Auto-migrate old format to new format
-        migrated = {}
-        try:
-            for user_id, value in data.items():
-                if isinstance(value, dict) and "total" in value:
-                    migrated[user_id] = value["total"]
-                elif isinstance(value, (int, float)):
-                    migrated[user_id] = value
-                else:
-                    migrated[user_id] = 0
-        except Exception as e:
-            logging.error(f"Error migrating voice stats structure: {e}")
-            return {}
-        return migrated
+        stats = storage.load_voice_stats(guild_id)
+        logging.debug(f"Loaded {len(stats)} voice stat entries from storage for guild {guild_id}")
+        return stats
     
     def validate_and_clean_voice_stats(self, guild_id: int):
         """
@@ -173,180 +135,63 @@ class VoiceTrackingFeature(commands.Cog):
             return False
     
     def save_voice_stats(self, guild_id: int, data):
-        """Save voice stats to JSON file atomically for specific guild."""
+        """Save voice stats to storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            storage.save_voice_stats(guild_id, data)
-            return
-
-        guild_config = self.config.get_guild_config(guild_id)
-        try:
-            tmp = guild_config.voice_stats_file + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            os.replace(tmp, guild_config.voice_stats_file)
-        except Exception as e:
-            logging.error(f"Failed to save voice stats atomically for guild {guild_id}: {e}")
+        storage.save_voice_stats(guild_id, data)
     
     def load_all_time_stats(self, guild_id: int):
-        """Load cumulative voice stats across current and all archive files."""
+        """Load cumulative voice stats across current and all archived data."""
         storage = self._get_storage()
-        if storage is not None:
-            return storage.load_all_time_voice_stats(guild_id)
-
-        totals = {}
-        # Start with current stats
-        try:
-            current = self.load_voice_stats(guild_id)
-            for uid, secs in current.items():
-                totals[uid] = totals.get(uid, 0) + int(secs or 0)
-        except Exception as e:
-            logging.warning(f"Failed to load current voice stats for all-time aggregation: {e}")
-        
-        # Include archive files
-        try:
-            for fname in os.listdir('.'):
-                if fname.startswith('archive_') and fname.endswith('.json'):
-                    try:
-                        with open(fname, 'r', encoding='utf-8-sig') as f:
-                            data = json.load(f)
-                        for uid, secs in data.items():
-                            totals[uid] = totals.get(uid, 0) + int(secs or 0)
-                    except Exception as e:
-                        logging.warning(f"Failed to include archive file {fname}: {e}")
-        except Exception as e:
-            logging.warning(f"Failed to scan archive files for all-time stats: {e}")
-        
-        return totals
+        return storage.load_all_time_voice_stats(guild_id)
     
     def load_previous_month_archived_stats(self, guild_id: int):
         """Load the previous month's archived stats for hall of fame display."""
         storage = self._get_storage()
-        if storage is not None:
-            # Try to load from SQLite archive
-            now = datetime.now(self.config.VIETNAM_TZ)
-            prev_month = now.month - 1 if now.month > 1 else 12
-            prev_year = now.year if now.month > 1 else now.year - 1
-            
-            try:
-                # Try to get from archive table
-                archived = storage.load_voice_stats_archive(guild_id, prev_year, prev_month)
-                if archived:
-                    logging.info(f"Loaded archived stats from SQLite for {prev_year}-{prev_month:02d}")
-                    return archived
-            except Exception as e:
-                logging.warning(f"Failed to load from SQLite archive: {e}")
-        
-        # Fallback: try to load from legacy JSON archive file
-        guild_config = self.config.get_guild_config(guild_id)
         now = datetime.now(self.config.VIETNAM_TZ)
         prev_month = now.month - 1 if now.month > 1 else 12
         prev_year = now.year if now.month > 1 else now.year - 1
         
-        archive_file = guild_config.get_file_path(f"archive_{prev_year}_{str(prev_month).zfill(2)}.json")
         try:
-            if os.path.exists(archive_file):
-                with open(archive_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                logging.info(f"Loaded archived stats from {archive_file}")
-                return data
+            archived = storage.load_voice_stats_archive(guild_id, prev_year, prev_month)
+            if archived:
+                logging.info(f"Loaded archived stats from SQLite for {prev_year}-{prev_month:02d}")
+                return archived
         except Exception as e:
-            logging.warning(f"Failed to load archive from {archive_file}: {e}")
+            logging.warning(f"Failed to load from SQLite archive: {e}")
         
         logging.warning(f"No archived stats found for {prev_year}-{prev_month:02d}")
         return {}
     
     
     def load_competitors(self, guild_id: int):
-        """Lazy load competitors dict from JSON file for specific guild."""
+        """Load competitors from storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            return storage.load_competitors(guild_id)
-
-        guild_config = self.config.get_guild_config(guild_id)
-        if not os.path.exists(guild_config.competitors_file):
-            return {}
-        try:
-            with open(guild_config.competitors_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                # Handle migration from list to dict
-                if isinstance(data, list):
-                    return {str(uid): None for uid in data}
-                return data
-        except Exception:
-            return {}
+        return storage.load_competitors(guild_id)
     
     def save_competitors(self, guild_id: int, data):
-        """Save competitors dict to JSON file for specific guild."""
+        """Save competitors to storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            storage.save_competitors(guild_id, data)
-            return
-
-        guild_config = self.config.get_guild_config(guild_id)
-        try:
-            with open(guild_config.competitors_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logging.error(f"Failed to save competitors for guild {guild_id}: {e}")
+        storage.save_competitors(guild_id, data)
     
     def load_entry_settings(self, guild_id: int):
-        """Lazy load entry settings from JSON file for specific guild."""
+        """Load entry settings from storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            return storage.load_entry_settings(guild_id)
-
-        guild_config = self.config.get_guild_config(guild_id)
-        if not os.path.exists(guild_config.entry_settings_file):
-            return {}
-        try:
-            with open(guild_config.entry_settings_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
+        return storage.load_entry_settings(guild_id)
     
     def save_entry_settings(self, guild_id: int, data):
-        """Save entry settings to JSON file for specific guild."""
+        """Save entry settings to storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            storage.save_entry_settings(guild_id, data)
-            return
-
-        guild_config = self.config.get_guild_config(guild_id)
-        try:
-            with open(guild_config.entry_settings_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logging.error(f"Failed to save entry settings for guild {guild_id}: {e}")
+        storage.save_entry_settings(guild_id, data)
     
     def load_state(self, guild_id: int):
-        """Lazy load state from JSON file for specific guild."""
+        """Load state from storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            return storage.load_state(guild_id)
-
-        guild_config = self.config.get_guild_config(guild_id)
-        if not os.path.exists(guild_config.state_file):
-            return {}
-        try:
-            with open(guild_config.state_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
+        return storage.load_state(guild_id)
     
     def save_state(self, guild_id: int, data):
-        """Save state to JSON file for specific guild."""
+        """Save state to storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            storage.save_state(guild_id, data)
-            return
-
-        guild_config = self.config.get_guild_config(guild_id)
-        try:
-            with open(guild_config.state_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logging.error(f"Failed to save state for guild {guild_id}: {e}")
+        storage.save_state(guild_id, data)
     
     def get_user_rank(self, total_hours):
         """Get rank name, perks, role ID, and coin multiplier based on total hours."""
@@ -722,38 +567,19 @@ class VoiceTrackingFeature(commands.Cog):
                                     inline=False
                                 )
                         
-                        # Everyone else (#4+) in a single condensed code block
+                        # Everyone else (#4+) as individual ⭐ fields
                         remaining = rankings[3:]
                         if remaining:
-                            all_lines = []
                             for i, (uid, hours, rank_name) in enumerate(remaining, start=4):
                                 try:
                                     guild_member = guild.get_member(int(uid))
                                     display = guild_member.display_name if guild_member else f"<@{uid}>"
                                 except Exception:
                                     display = f"<@{uid}>"
-                                line = f"#{i} {display}: {int(hours)}h {int((hours % 1) * 60)}m ({rank_name})"
-                                all_lines.append(line)
-                            
-                            chunk = []
-                            char_count = 0
-                            for line in all_lines:
-                                if char_count + len(line) + 1 > 1900:
-                                    embed.add_field(
-                                        name="📋 Full Rankings",
-                                        value=f"```{chr(10).join(chunk)}```",
-                                        inline=False,
-                                    )
-                                    chunk = [line]
-                                    char_count = len(line) + 1
-                                else:
-                                    chunk.append(line)
-                                    char_count += len(line) + 1
-                            if chunk:
                                 embed.add_field(
-                                    name="📋 Full Rankings",
-                                    value=f"```{chr(10).join(chunk)}```",
-                                    inline=False,
+                                    name=f"⭐ {display}",
+                                    value=f"**#{i}** - **{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
+                                    inline=False
                                 )
                         
                         embed.set_footer(text=f"Stats reset vào {now.strftime('%d/%m/%Y %H:%M')} (Giờ Việt Nam)")
@@ -770,20 +596,11 @@ class VoiceTrackingFeature(commands.Cog):
                 if now.month == 1:
                     archive_year -= 1  # If January, archive goes to December of previous year
                 
-                if storage is not None:
-                    try:
-                        storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
-                        logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
-                    except Exception as e:
-                        logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
-                else:
-                    archive_filename = guild_config.get_file_path(f"archive_{archive_year}_{str(archive_month).zfill(2)}.json")
-                    try:
-                        with open(archive_filename, "w", encoding="utf-8") as f:
-                            json.dump(stats, f, indent=2, ensure_ascii=False)
-                        logging.info(f"Archived stats for guild {guild_id} to {archive_filename}")
-                    except Exception as e:
-                        logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
+                try:
+                    storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
+                    logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
+                except Exception as e:
+                    logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
                 
                 # 6. Reset all stats to 0
                 reset_stats = {user_id: 0 for user_id in stats.keys()}
@@ -1140,38 +957,19 @@ class VoiceTrackingFeature(commands.Cog):
                                 inline=False
                             )
                     
-                    # Everyone else (#4+) in a single condensed code block
+                    # Everyone else (#4+) as individual ⭐ fields
                     remaining = rankings[3:]
                     if remaining:
-                        all_lines = []
                         for i, (uid, hours, rank_name) in enumerate(remaining, start=4):
                             try:
                                 guild_member = guild.get_member(int(uid))
                                 display = guild_member.display_name if guild_member else f"<@{uid}>"
                             except Exception:
                                 display = f"<@{uid}>"
-                            line = f"#{i} {display}: {int(hours)}h {int((hours % 1) * 60)}m ({rank_name})"
-                            all_lines.append(line)
-                        
-                        chunk = []
-                        char_count = 0
-                        for line in all_lines:
-                            if char_count + len(line) + 1 > 1900:
-                                embed.add_field(
-                                    name="📋 Full Rankings",
-                                    value=f"```{chr(10).join(chunk)}```",
-                                    inline=False,
-                                )
-                                chunk = [line]
-                                char_count = len(line) + 1
-                            else:
-                                chunk.append(line)
-                                char_count += len(line) + 1
-                        if chunk:
                             embed.add_field(
-                                name="📋 Full Rankings",
-                                value=f"```{chr(10).join(chunk)}```",
-                                inline=False,
+                                name=f"⭐ {display}",
+                                value=f"**#{i}** - **{int(hours)}h {int((hours % 1) * 60)}m** - Rank: {rank_name}",
+                                inline=False
                             )
                     
                     embed.set_footer(text=f"⚠️ MANUAL RESET by {interaction.user.display_name} at {now.strftime('%d/%m/%Y %H:%M')} (Giờ Việt Nam)")
@@ -1189,12 +987,11 @@ class VoiceTrackingFeature(commands.Cog):
             if now.month == 1:
                 archive_year -= 1  # If January, archive goes to December of previous year
             
-            if storage is not None:
-                try:
-                    storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
-                    logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
-                except Exception as e:
-                    logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
+            try:
+                storage.archive_voice_stats(guild_id, archive_year, archive_month, stats)
+                logging.info(f"Archived stats for guild {guild_id} to SQLite ({archive_year}-{archive_month:02d})")
+            except Exception as e:
+                logging.error(f"Failed to archive stats for guild {guild_id}: {e}")
             
             # 6. Reset all stats to 0
             reset_stats = {user_id: 0 for user_id in stats.keys()}

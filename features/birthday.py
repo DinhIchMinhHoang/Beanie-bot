@@ -7,8 +7,6 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 import logging
-import os
-import json
 import gc
 import random
 from datetime import datetime
@@ -39,41 +37,17 @@ class BirthdayFeature(commands.Cog):
     # ===========================
 
     def _get_storage(self):
-        storage_getter = getattr(self.config, "get_storage", None)
-        if not callable(storage_getter):
-            return None
-        storage = storage_getter()
-        return storage if hasattr(storage, "load_birthdays") else None
+        return self.config.get_storage()
     
     def load_birthdays(self, guild_id: int):
-        """Lazy load birthdays from JSON file for specific guild."""
+        """Load birthdays from storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            return storage.load_birthdays(guild_id)
-
-        guild_config = self.config.get_guild_config(guild_id)
-        if not os.path.exists(guild_config.birthday_file):
-            return {}
-        try:
-            with open(guild_config.birthday_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to load birthdays for guild {guild_id}: {e}")
-            return {}
+        return storage.load_birthdays(guild_id)
     
     def save_birthdays(self, guild_id: int, data):
-        """Save birthdays to JSON file for specific guild."""
+        """Save birthdays to storage for specific guild."""
         storage = self._get_storage()
-        if storage is not None:
-            storage.save_birthdays(guild_id, data)
-            return
-
-        guild_config = self.config.get_guild_config(guild_id)
-        try:
-            with open(guild_config.birthday_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            logging.error(f"Failed to save birthdays for guild {guild_id}: {e}")
+        storage.save_birthdays(guild_id, data)
     
     # ===========================
     # Background Tasks

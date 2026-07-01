@@ -33,11 +33,6 @@ class TestBotConfig:
         """Test that BotConfig has all required constants."""
         from core.config import BotConfig
         
-        # Check file paths exist
-        assert hasattr(BotConfig, 'BIRTHDAY_FILE')
-        assert hasattr(BotConfig, 'VOICE_STATS_FILE')
-        assert hasattr(BotConfig, 'COMPETITORS_FILE')
-        
         # Check Discord IDs exist
         assert hasattr(BotConfig, 'BIRTHDAY_CHANNEL_ID')
         assert hasattr(BotConfig, 'GENERAL_CHANNEL_ID')

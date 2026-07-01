@@ -70,13 +70,6 @@ class BotConfig:
     MAX_EMPTY_CHECKS = int(os.getenv("MAX_EMPTY_CHECKS", "3"))
     LAST_REQUEST_CHANNEL_FILE = "last_request_channel.txt"
     
-    # Voice Tracking Data Files
-    BIRTHDAY_FILE = "birthdays.json"
-    VOICE_STATS_FILE = "voice_stats.json"
-    COMPETITORS_FILE = "competitors.json"
-    ENTRY_SETTINGS_FILE = "entry_settings.json"
-    STATE_FILE = "state.json"
-    
     # Discord Channel IDs
     BIRTHDAY_CHANNEL_ID = 1054049999475965972  # Voice chat text channel
     RANK_CATEGORY_ID = 1472493127934677185  # Category where rank channels will be created

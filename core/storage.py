@@ -4,16 +4,11 @@ import asyncio
 import json
 import logging
 import os
-import re
 import threading
 import time
 from datetime import datetime, timezone
 
 import aiosqlite
-
-
-ARCHIVE_FILE_RE = re.compile(r"^archive_(\d{4})_(\d{2})\.json$")
-CHAT_HISTORY_RE = re.compile(r"^\[(?P<timestamp>[^\]]+)\]\s(?P<speaker>[^:]+):\s(?P<content>.*)$")
 
 _STORAGES = {}
 _STORAGES_LOCK = threading.Lock()
@@ -245,182 +240,8 @@ class SQLiteStorage:
             (guild_id,),
         )
         if config_row is None:
-            config_file = self._get_migration_file_path(guild_id, guild_dir, "guild_config.json")
-            config_data = self._read_json_file(config_file, default_config)
-            await self._save_guild_config(guild_id, config_data)
-
-        # Migration from JSON to SQLite has completed; keeping methods for reference/rollback.
-        # The following migration calls are disabled since all data has been transferred.
-        # Uncomment below if needed to re-enable migration from legacy JSON files.
-        """
-        await self._migrate_simple_json_table(
-            guild_id,
-            guild_dir,
-            "birthdays.json",
-            "birthdays",
-            lambda data: [(guild_id, str(user_id), value) for user_id, value in (data or {}).items()],
-            "INSERT OR REPLACE INTO birthdays (guild_id, user_id, birthday) VALUES (?, ?, ?)",
-        )
-
-        await self._migrate_simple_json_table(
-            guild_id,
-            guild_dir,
-            "voice_stats.json",
-            "voice_stats",
-            lambda data: [
-                (guild_id, str(user_id), self._normalize_voice_total(value))
-                for user_id, value in (data or {}).items()
-            ],
-            "INSERT OR REPLACE INTO voice_stats (guild_id, user_id, total_seconds) VALUES (?, ?, ?)",
-        )
-
-        await self._migrate_simple_json_table(
-            guild_id,
-            guild_dir,
-            "competitors.json",
-            "competitors",
-            lambda data: self._normalize_competitors(guild_id, data),
-            "INSERT OR REPLACE INTO competitors (guild_id, user_id, channel_id) VALUES (?, ?, ?)",
-        )
-
-        await self._migrate_simple_json_table(
-            guild_id,
-            guild_dir,
-            "entry_settings.json",
-            "entry_settings",
-            lambda data: [
-                (guild_id, str(user_id), json.dumps(value, ensure_ascii=False))
-                for user_id, value in (data or {}).items()
-            ],
-            "INSERT OR REPLACE INTO entry_settings (guild_id, user_id, settings_json) VALUES (?, ?, ?)",
-        )
-
-        await self._migrate_simple_json_table(
-            guild_id,
-            guild_dir,
-            "state.json",
-            "guild_state",
-            lambda data: [
-                (guild_id, str(key), json.dumps(value, ensure_ascii=False))
-                for key, value in (data or {}).items()
-            ],
-            "INSERT OR REPLACE INTO guild_state (guild_id, state_key, value_json) VALUES (?, ?, ?)",
-        )
-
-        await self._migrate_chat_history(guild_id, guild_dir)
-        await self._migrate_archives(guild_id, guild_dir)
-        """
+            await self._save_guild_config(guild_id, default_config)
         await self._conn.commit()
-
-    async def _migrate_simple_json_table(
-        self,
-        guild_id: int,
-        guild_dir: str,
-        filename: str,
-        table_name: str,
-        row_builder,
-        insert_sql: str,
-    ):
-        count_row = await self._fetchone(
-            f"SELECT COUNT(*) AS count FROM {table_name} WHERE guild_id = ?",
-            (guild_id,),
-        )
-        if count_row and count_row["count"]:
-            return
-
-        file_path = self._get_migration_file_path(guild_id, guild_dir, filename)
-        if not os.path.exists(file_path):
-            return
-
-        data = self._read_json_file(file_path, {})
-        rows = row_builder(data)
-        if not rows:
-            legacy_file_path = self._get_legacy_root_file_path(guild_id, filename)
-            if legacy_file_path and legacy_file_path != file_path:
-                data = self._read_json_file(legacy_file_path, {})
-                rows = row_builder(data)
-        if rows:
-            await self._conn.executemany(insert_sql, rows)
-
-    async def _migrate_chat_history(self, guild_id: int, guild_dir: str):
-        count_row = await self._fetchone(
-            "SELECT COUNT(*) AS count FROM chat_history WHERE guild_id = ?",
-            (guild_id,),
-        )
-        if count_row and count_row["count"]:
-            return
-
-        history_file = self._get_migration_file_path(guild_id, guild_dir, "chat_history.txt")
-        if not os.path.exists(history_file):
-            return
-
-        rows = []
-        with open(history_file, "r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.rstrip("\n")
-                if not text:
-                    continue
-                match = CHAT_HISTORY_RE.match(text)
-                if match:
-                    created_at = match.group("timestamp")
-                    speaker = match.group("speaker")
-                    content = match.group("content")
-                else:
-                    created_at = datetime.now(timezone.utc).isoformat()
-                    speaker = "unknown"
-                    content = text
-                rows.append((guild_id, created_at, speaker, content))
-
-        if rows:
-            await self._conn.executemany(
-                "INSERT INTO chat_history (guild_id, created_at, speaker, content) VALUES (?, ?, ?, ?)",
-                rows,
-            )
-
-    async def _migrate_archives(self, guild_id: int, guild_dir: str):
-        existing = await self._fetchall(
-            "SELECT DISTINCT archive_year, archive_month FROM voice_stats_archive WHERE guild_id = ?",
-            (guild_id,),
-        )
-        existing_pairs = {(row["archive_year"], row["archive_month"]) for row in existing}
-
-        archive_sources = [guild_dir]
-        legacy_root_dir = self._get_legacy_root_dir(guild_id)
-        if legacy_root_dir and legacy_root_dir != guild_dir:
-            archive_sources.append(legacy_root_dir)
-
-        processed_pairs = set()
-        for archive_source in archive_sources:
-            if not os.path.isdir(archive_source):
-                continue
-
-            for filename in os.listdir(archive_source):
-                match = ARCHIVE_FILE_RE.match(filename)
-                if not match:
-                    continue
-
-                archive_year = int(match.group(1))
-                archive_month = int(match.group(2))
-                archive_pair = (archive_year, archive_month)
-                if archive_pair in existing_pairs or archive_pair in processed_pairs:
-                    continue
-
-                file_path = os.path.join(archive_source, filename)
-                data = self._read_json_file(file_path, {})
-                rows = [
-                    (guild_id, archive_year, archive_month, str(user_id), self._normalize_voice_total(value))
-                    for user_id, value in (data or {}).items()
-                ]
-                if rows:
-                    await self._conn.executemany(
-                        """
-                        INSERT OR REPLACE INTO voice_stats_archive
-                        (guild_id, archive_year, archive_month, user_id, total_seconds)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        rows,
-                    )
-                    processed_pairs.add(archive_pair)
 
     def load_guild_config(self, guild_id: int) -> dict:
         return self._call(self._load_guild_config(guild_id))
@@ -1011,45 +832,6 @@ class SQLiteStorage:
         async with self._conn.execute(sql, params) as cursor:
             return await cursor.fetchall()
 
-
-    def _get_migration_file_path(self, guild_id: int, guild_dir: str, filename: str) -> str:
-        guild_path = os.path.join(guild_dir, filename)
-        if os.path.exists(guild_path):
-            return guild_path
-
-        legacy_path = self._get_legacy_root_file_path(guild_id, filename)
-        if legacy_path:
-            logging.info("Using legacy root file for guild %s migration: %s", guild_id, legacy_path)
-            return legacy_path
-
-        return guild_path
-
-    def _get_legacy_root_dir(self, guild_id: int) -> str | None:
-        legacy_guild_id = os.getenv("GUILD_ID", "").strip()
-        if legacy_guild_id and legacy_guild_id != str(guild_id):
-            return None
-        if not legacy_guild_id:
-            return None
-        return self.base_dir
-
-    def _get_legacy_root_file_path(self, guild_id: int, filename: str) -> str | None:
-        legacy_root_dir = self._get_legacy_root_dir(guild_id)
-        if not legacy_root_dir:
-            return None
-
-        legacy_path = os.path.join(legacy_root_dir, filename)
-        if os.path.exists(legacy_path):
-            return legacy_path
-
-        return None
-
-    @staticmethod
-    def _read_json_file(path: str, default):
-        try:
-            with open(path, "r", encoding="utf-8-sig") as handle:
-                return json.load(handle)
-        except Exception:
-            return default
 
     @staticmethod
     def _normalize_voice_total(value) -> float:

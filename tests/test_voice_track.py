@@ -2,8 +2,7 @@
 Unit tests for Voice Tracking feature module.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from features.voice_track import VoiceTrackingFeature
 from tests.conftest import TEST_GUILD_ID
@@ -36,45 +35,23 @@ class TestVoiceTrackingFeature:
         assert voice_feature.voice_join_times == {}
     
     def test_load_voice_stats_empty(self, voice_feature):  
-        """Test loading voice stats when file doesn't exist."""
-        with patch('os.path.exists', return_value=False):
-            result = voice_feature.load_voice_stats(TEST_GUILD_ID)
-            assert result == {}
+        """Test loading voice stats when none stored."""
+        result = voice_feature.load_voice_stats(TEST_GUILD_ID)
+        assert result == {}
     
     def test_load_voice_stats_with_data(self, voice_feature):
-        """Test loading voice stats from existing file."""
-        test_data = {"123456": 3600, "789012": 7200}  # 1h and 2h in seconds
-        
-        with patch('os.path.exists', return_value=True):
-            with patch('os.path.getsize', return_value=100):
-                with patch('builtins.open', mock_open(read_data=json.dumps(test_data))):
-                    result = voice_feature.load_voice_stats(TEST_GUILD_ID)
-                    assert result == test_data
+        """Test loading voice stats from storage."""
+        test_data = {"123456": 3600, "789012": 7200}
+        voice_feature.save_voice_stats(TEST_GUILD_ID, test_data)
+        result = voice_feature.load_voice_stats(TEST_GUILD_ID)
+        assert result == test_data
     
-    def test_load_voice_stats_migration_old_format(self, voice_feature):
-        """Test auto-migration from old format {user: {total: X}} to new {user: X}."""
-        old_format = {"123456": {"total": 3600, "monthly": 1800}}
-        expected = {"123456": 3600}
-        
-        with patch('os.path.exists', return_value=True):
-            with patch('os.path.getsize', return_value=100):
-                with patch('builtins.open', mock_open(read_data=json.dumps(old_format))):
-                    result = voice_feature.load_voice_stats(TEST_GUILD_ID)
-                    assert result == expected
-    
-    def test_save_voice_stats(self, voice_feature, mock_config):
-        """Test saving voice stats to file atomically."""
+    def test_save_voice_stats(self, voice_feature):
+        """Test saving voice stats via storage."""
         test_data = {"123456": 3600}
-        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
-        
-        m = mock_open()
-        with patch('builtins.open', m):
-            with patch('os.replace'):
-                voice_feature.save_voice_stats(TEST_GUILD_ID, test_data)
-        
-        # Should write to temp file first
-        m.assert_called_once()
-        assert '.tmp' in m.call_args[0][0]
+        voice_feature.save_voice_stats(TEST_GUILD_ID, test_data)
+        result = voice_feature.load_voice_stats(TEST_GUILD_ID)
+        assert result == test_data
     
     def test_get_user_rank_iron(self, voice_feature):
         """Test rank calculation for Iron (< 20h)."""

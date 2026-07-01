@@ -30,31 +30,23 @@ class TestBirthdayFeature:
         assert birthday_feature.last_birthday_check is None
     
     def test_load_birthdays_empty(self, birthday_feature):
-        """Test loading birthdays when file doesn't exist."""
-        with patch('os.path.exists', return_value=False):
-            result = birthday_feature.load_birthdays(TEST_GUILD_ID)
-            assert result == {}
+        """Test loading birthdays when none stored."""
+        result = birthday_feature.load_birthdays(TEST_GUILD_ID)
+        assert result == {}
     
     def test_load_birthdays_with_data(self, birthday_feature):
-        """Test loading birthdays from existing file."""
+        """Test loading saved birthdays."""
         test_data = {"123456": "25/12", "789012": "01/01"}
-        
-        with patch('os.path.exists', return_value=True):
-            with patch('builtins.open', mock_open(read_data=json.dumps(test_data))):
-                result = birthday_feature.load_birthdays(TEST_GUILD_ID)
-                assert result == test_data
+        birthday_feature.save_birthdays(TEST_GUILD_ID, test_data)
+        result = birthday_feature.load_birthdays(TEST_GUILD_ID)
+        assert result == test_data
     
-    def test_save_birthdays(self, birthday_feature, mock_config):
-        """Test saving birthdays to file."""
+    def test_save_birthdays(self, birthday_feature):
+        """Test saving birthdays via storage."""
         test_data = {"123456": "25/12"}
-        
-        guild_config = mock_config.get_guild_config(TEST_GUILD_ID)
-        m = mock_open()
-        with patch('builtins.open', m):
-            birthday_feature.save_birthdays(TEST_GUILD_ID, test_data)
-            
-        # Verify file was opened in write mode
-        m.assert_called_once_with(guild_config.birthday_file, 'w', encoding='utf-8')
+        birthday_feature.save_birthdays(TEST_GUILD_ID, test_data)
+        result = birthday_feature.load_birthdays(TEST_GUILD_ID)
+        assert result == test_data
     
     @pytest.mark.asyncio
     async def test_birthday_cmd_add_not_admin(self, birthday_feature, mock_interaction):

@@ -4,7 +4,6 @@ Handles per-guild settings and data paths
 """
 
 import os
-import json
 import logging
 from typing import List
 
@@ -44,24 +43,9 @@ class GuildConfig:
         if stored_config:
             return self._normalize_config(stored_config)
 
-        config_file = os.path.join(self.guild_dir, "guild_config.json")
-        
-        if os.path.exists(config_file):
-            try:
-                with open(config_file, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    normalized = self._normalize_config(config)
-                    if normalized != config:
-                        self._save_guild_config(normalized)
-                    return normalized
-            except Exception as e:
-                logging.error(f"Failed to load guild config for {self.guild_id}: {e}")
-                return self._default_config()
-        else:
-            # Create default config
-            config = self._default_config()
-            self._save_guild_config(config)
-            return config
+        config = self._default_config()
+        self._save_guild_config(config)
+        return config
     
     def _default_config(self):
         """Return default guild configuration."""
@@ -113,36 +97,6 @@ class GuildConfig:
             logging.info(f"Saved guild config for {self.guild_id}")
         except Exception as e:
             logging.error(f"Failed to save guild config for {self.guild_id}: {e}")
-    
-    # --- File Path Methods ---
-    
-    def get_file_path(self, filename: str) -> str:
-        """Get path for a guild-specific file."""
-        return os.path.join(self.guild_dir, filename)
-    
-    @property
-    def birthday_file(self) -> str:
-        return self.get_file_path("birthdays.json")
-    
-    @property
-    def voice_stats_file(self) -> str:
-        return self.get_file_path("voice_stats.json")
-    
-    @property
-    def competitors_file(self) -> str:
-        return self.get_file_path("competitors.json")
-    
-    @property
-    def entry_settings_file(self) -> str:
-        return self.get_file_path("entry_settings.json")
-    
-    @property
-    def state_file(self) -> str:
-        return self.get_file_path("state.json")
-    
-    @property
-    def chat_history_file(self) -> str:
-        return self.get_file_path("chat_history.txt")
     
     # --- Channel/Role ID Methods ---
     
