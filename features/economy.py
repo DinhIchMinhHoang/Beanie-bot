@@ -195,7 +195,8 @@ CATEGORY_META = {
 
 
 def process_purchase(
-    storage, guild_id: int, user_id: int, item_key: str, item_info: dict, discounts: dict | None = None
+    storage, guild_id: int, user_id: int, item_key: str, item_info: dict,
+    discounts: dict | None = None, voice_feature=None
 ) -> tuple[bool, str, float]:
     """Process a shop item purchase.
     Returns (success, message, new_balance).
@@ -214,6 +215,14 @@ def process_purchase(
     month = datetime.now().strftime("%Y-%m")
     storage.add_purchase(guild_id, user_id, month, item_info["type"], item_info["value"])
     new_balance = storage.get_balance(guild_id, user_id)
+    if item_info["type"] == "hours" and voice_feature:
+        try:
+            stats = voice_feature.load_voice_stats(guild_id)
+            uid_str = str(user_id)
+            stats[uid_str] = stats.get(uid_str, 0) + item_info["value"] * 3600
+            voice_feature.save_voice_stats(guild_id, stats)
+        except Exception:
+            pass
     return True, f"Đã mua **{item_info['emoji']} {item_info['name']}** thành công! (Giá: {sale_price}🪙)", new_balance
 
 
@@ -342,7 +351,8 @@ class ShopView(discord.ui.View):
             )
             return
         success, msg, new_balance = process_purchase(
-            storage, self.guild_id, self.user_id, key, info, self.discounts
+            storage, self.guild_id, self.user_id, key, info, self.discounts,
+            voice_feature=self.cog.voice_feature,
         )
         if not success:
             await interaction.response.edit_message(

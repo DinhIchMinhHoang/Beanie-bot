@@ -383,7 +383,7 @@ async def dispatch_tool(tool_name, tool_args, ctx):
                 return f"Không tìm thấy item '{item_name}'. Dùng shop_list để xem danh sách."
             item = SHOP_ITEMS[matched_key]
             discounts = compute_item_discounts(storage, guild_id)
-            success, msg, _ = process_purchase(storage, guild_id, user_id, matched_key, item, discounts)
+            success, msg, _ = process_purchase(storage, guild_id, user_id, matched_key, item, discounts, voice_feature=voice_feature)
             return msg
 
         elif tool_name == "my_purchases":
@@ -717,14 +717,8 @@ async def dispatch_tool(tool_name, tool_args, ctx):
                 if (minecraft_feature.vm_is_running()
                         and minecraft_feature.config.RCON_ENABLED
                         and minecraft_feature.config.RCON_PASSWORD):
-                    from mcrcon import MCRcon
                     try:
-                        with MCRcon(
-                            minecraft_feature.config.RCON_HOST,
-                            minecraft_feature.config.RCON_PASSWORD,
-                            port=minecraft_feature.config.RCON_PORT,
-                        ) as mcr:
-                            out = mcr.command("list")
+                        out = await minecraft_feature.async_rcon_command("list", timeout=5)
                         m = re.search(r"There are (\d+) of a max", out)
                         if m:
                             parts.append(f"🟢 Minecraft (RCON): {m.group(1)} players")
@@ -745,16 +739,9 @@ async def dispatch_tool(tool_name, tool_args, ctx):
             if not command:
                 return "Vui lòng nhập lệnh cần thực thi."
             try:
-                from mcrcon import MCRcon
-                host = minecraft_feature.config.RCON_HOST or minecraft_feature.config.MC_SERVER_IP
-                if not host or not minecraft_feature.config.RCON_PASSWORD:
+                if not minecraft_feature.config.RCON_ENABLED or not minecraft_feature.config.RCON_PASSWORD:
                     return "RCON chưa được cấu hình."
-                with MCRcon(
-                    host,
-                    minecraft_feature.config.RCON_PASSWORD,
-                    port=minecraft_feature.config.RCON_PORT,
-                ) as mcr:
-                    out = mcr.command(command)
+                out = await minecraft_feature.async_rcon_command(command, timeout=10)
                 if not out or out.strip() == "":
                     return f"✅ Đã thực thi lệnh `/{command}` (không có output)."
                 return f"✅ `/{command}`\n```\n{out[:1500]}\n```"

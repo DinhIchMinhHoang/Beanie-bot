@@ -5,18 +5,58 @@ Handles Azure VM control, SSH commands, and Minecraft server management
 
 import asyncio
 import logging
+import struct
 import time
 import os
+import socket
 from discord.ext import commands, tasks
 from discord import app_commands
 import discord
 import paramiko
 from mcstatus import JavaServer
-try:
-    from mcrcon import MCRcon
-    RCON_PKG_AVAILABLE = True
-except Exception:
-    RCON_PKG_AVAILABLE = False
+
+
+class AsyncMCRcon:
+    """Async RCON client for Minecraft — no signal/socket timeouts, works in any thread."""
+
+    def __init__(self, host, password, port=25575):
+        self.host = host
+        self.password = password
+        self.port = port
+        self._reader = None
+        self._writer = None
+
+    async def __aenter__(self):
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self.host, self.port), timeout=10
+        )
+        payload = self.password.encode("utf-8") + b"\x00"
+        body = struct.pack("<ii", 0, 3) + payload + b"\x00"
+        self._writer.write(struct.pack("<i", len(body)) + body)
+        await self._writer.drain()
+        raw_len = await asyncio.wait_for(self._reader.readexactly(4), timeout=10)
+        pkt_len = struct.unpack("<i", raw_len)[0]
+        data = await asyncio.wait_for(self._reader.readexactly(pkt_len), timeout=10)
+        return self
+
+    async def __aexit__(self, *args):
+        if self._writer:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except Exception:
+                pass
+
+    async def command(self, command):
+        payload = command.encode("utf-8") + b"\x00"
+        body = struct.pack("<ii", 0, 2) + payload + b"\x00"
+        self._writer.write(struct.pack("<i", len(body)) + body)
+        await self._writer.drain()
+        raw_len = await asyncio.wait_for(self._reader.readexactly(4), timeout=10)
+        pkt_len = struct.unpack("<i", raw_len)[0]
+        data = await asyncio.wait_for(self._reader.readexactly(pkt_len), timeout=10)
+        resp = data[8:-2]
+        return resp.decode("utf-8", errors="ignore")
 
 
 class MinecraftFeature(commands.Cog):
@@ -149,25 +189,52 @@ class MinecraftFeature(commands.Cog):
         return False
     
     def rcon_command(self, command, timeout=10):
-        """Execute RCON command on Minecraft server."""
-        if not RCON_PKG_AVAILABLE:
-            raise RuntimeError("mcrcon package not installed")
+        """Execute RCON command (sync, raw-socket — no signal usage)."""
+        if not self.config.RCON_ENABLED:
+            raise RuntimeError("RCON not enabled in env")
+        if not self.config.RCON_PASSWORD:
+            raise RuntimeError("RCON password not configured")
+        host = self.config.RCON_HOST or self.config.MC_SERVER_IP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect((host, self.config.RCON_PORT))
+            # Login
+            pwd = self.config.RCON_PASSWORD.encode("utf-8") + b"\x00"
+            body = struct.pack("<ii", 0, 3) + pwd + b"\x00"
+            sock.sendall(struct.pack("<i", len(body)) + body)
+            sock.recv(4096)
+            # Command
+            cmd = command.encode("utf-8") + b"\x00"
+            body = struct.pack("<ii", 0, 2) + cmd + b"\x00"
+            sock.sendall(struct.pack("<i", len(body)) + body)
+            data = sock.recv(8192)
+            if len(data) > 8:
+                return data[8:-2].decode("utf-8", errors="ignore")
+            return ""
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    async def async_rcon_command(self, command, timeout=10):
+        """Execute RCON command (async)."""
         if not self.config.RCON_ENABLED:
             raise RuntimeError("RCON not enabled in env")
         if not self.config.RCON_PASSWORD:
             raise RuntimeError("RCON password not configured")
         host = self.config.RCON_HOST or self.config.MC_SERVER_IP
         try:
-            with MCRcon(host, self.config.RCON_PASSWORD, port=self.config.RCON_PORT) as mcr:
-                out = mcr.command(command)
-                return out
+            async with AsyncMCRcon(host, self.config.RCON_PASSWORD, port=self.config.RCON_PORT) as rcon:
+                return await asyncio.wait_for(rcon.command(command), timeout=timeout)
         except Exception:
             raise
     
     def get_current_player_count(self):
         """Get current player count on Minecraft server."""
         try:
-            if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD and self.vm_is_running():
+            if self.config.RCON_ENABLED and self.config.RCON_PASSWORD and self.vm_is_running():
                 try:
                     out = self.rcon_command('list')
                     import re
@@ -199,9 +266,9 @@ class MinecraftFeature(commands.Cog):
     async def async_get_player_count(self, timeout=5):
         """Async version of get_current_player_count."""
         try:
-            if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD and self.vm_is_running():
+            if self.config.RCON_ENABLED and self.config.RCON_PASSWORD and self.vm_is_running():
                 try:
-                    out = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, 'list'), timeout=timeout)
+                    out = await self.async_rcon_command('list', timeout=timeout)
                     import re
                     m = re.search(r"There are (\d+) of a max", out)
                     if m:
@@ -252,9 +319,9 @@ class MinecraftFeature(commands.Cog):
                 return
             
             try:
-                if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD:
+                if self.config.RCON_ENABLED and self.config.RCON_PASSWORD:
                     try:
-                        out = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, 'list'), timeout=5)
+                        out = await self.async_rcon_command('list', timeout=5)
                         import re
                         m = re.search(r"There are (\d+) of a max", out)
                         if m:
@@ -359,9 +426,9 @@ class MinecraftFeature(commands.Cog):
             msg += f"🖥️ **Azure VM:** Error - {e}\n"
         try:
             players_cnt = None
-            if self.vm_is_running() and self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD:
+            if self.vm_is_running() and self.config.RCON_ENABLED and self.config.RCON_PASSWORD:
                 try:
-                    out = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, "list"), timeout=5)
+                    out = await self.async_rcon_command("list", timeout=5)
                     import re
                     m = re.search(r"There are (\d+) of a max", out)
                     if m:
@@ -451,9 +518,9 @@ class MinecraftFeature(commands.Cog):
                     msg += f"🖥️ **Azure VM:** Error - {e}\n"
                 
                 players_cnt = None
-                if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD and self.vm_is_running():
+                if self.config.RCON_ENABLED and self.config.RCON_PASSWORD and self.vm_is_running():
                     try:
-                        out_r = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, "list"), timeout=5)
+                        out_r = await self.async_rcon_command("list", timeout=5)
                         import re
                         m = re.search(r"There are (\d+) of a max", out_r)
                         if m:
@@ -491,7 +558,7 @@ class MinecraftFeature(commands.Cog):
         await interaction.followup.send("🛑 Đang gửi lệnh tắt server...")
         
         try:
-            await asyncio.to_thread(self.rcon_command, 'stop')
+            await self.async_rcon_command('stop')
         except:
             pass
         await asyncio.to_thread(self.ssh_command, 'sudo systemctl stop minecraft.service')
@@ -539,9 +606,9 @@ class MinecraftFeature(commands.Cog):
                 pass
             return
         
-        if self.config.RCON_ENABLED and RCON_PKG_AVAILABLE and self.config.RCON_PASSWORD:
+        if self.config.RCON_ENABLED and self.config.RCON_PASSWORD:
             try:
-                await asyncio.to_thread(self.rcon_command, 'stop')
+                await self.async_rcon_command('stop')
                 await asyncio.sleep(5)
                 await interaction.followup.send("✅ Sent RCON stop (graceful). Note: server start requires SSH access to run the start script.")
                 return
@@ -558,8 +625,8 @@ class MinecraftFeature(commands.Cog):
         await interaction.response.defer()
         self._save_last_request_channel(interaction.channel_id)
 
-        if not self.config.RCON_ENABLED or not RCON_PKG_AVAILABLE or not self.config.RCON_PASSWORD:
-            await interaction.followup.send("❌ RCON chưa được cấu hình hoặc chưa cài đặt.")
+        if not self.config.RCON_ENABLED or not self.config.RCON_PASSWORD:
+            await interaction.followup.send("❌ RCON chưa được cấu hình.")
             return
 
         if not self.vm_is_running():
@@ -567,7 +634,7 @@ class MinecraftFeature(commands.Cog):
             return
 
         try:
-            out = await asyncio.wait_for(asyncio.to_thread(self.rcon_command, command), timeout=10)
+            out = await self.async_rcon_command(command, timeout=10)
             msg = f"✅ **Lệnh:** `/{command}`\n```\n{out[:1900]}\n```"
             await interaction.followup.send(msg)
         except Exception as e:
